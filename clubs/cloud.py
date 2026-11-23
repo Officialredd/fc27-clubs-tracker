@@ -7,7 +7,7 @@ online-data into its own database.
 
 online-data holds one small JSON file per thing. Files are only added (scouting records are replaced when they
 change), so the repository stays small:
-  club.json                       which club this is (id, platform, name, the owner's player)
+  club.json                       which club this is (id, platform, name, the owner's player, time zone)
   m/<match_id>.json               our matches as EA sent them: {"club_id", "platform", "match_type", "raw"}
   s/<club_id>/<match_id>.json     scouted clubs' games, the same way (club_id = the scouted club)
   f/<club_id>_<for_match>.json    what scouting found for one of our matches
@@ -23,7 +23,7 @@ import time
 import zlib
 from pathlib import Path
 
-from . import config, db, parse
+from . import config, db, parse, tz
 
 FOLDER = "online-data"
 API = "https://api.github.com"
@@ -153,7 +153,8 @@ def pending(cfg: dict) -> dict[str, str]:
     add("club.json", {"club_id": club, "platform": plat, "club_name": cfg.get("club_name") or "",
                       "me_name": cfg.get("me_name") or "", "me_id": cfg.get("me_id"),
                       "session_gap_minutes": cfg.get("session_gap_minutes", 45),
-                      "archetype_names": cfg.get("archetype_names") or {}})
+                      "archetype_names": cfg.get("archetype_names") or {},
+                      "timezone": cfg.get("timezone") or tz.describe()})
     return out
 
 
@@ -274,7 +275,9 @@ def _apply(rel: str, obj):
         config.save({"club_id": obj.get("club_id"), "platform": obj.get("platform"), "club_name": obj.get("club_name"),
                      "me_name": obj.get("me_name"), "me_id": obj.get("me_id"), "welcome_done": True,
                      "session_gap_minutes": obj.get("session_gap_minutes", 45),
-                     "archetype_names": obj.get("archetype_names") or {}})
+                     "archetype_names": obj.get("archetype_names") or {}, "timezone": obj.get("timezone") or ""})
+        if os.environ.get("CLUBS_ONLINE") == "1":   # times of what's read next are in the club's time zone too
+            tz.apply(obj.get("timezone"))
     elif kind == "m":
         m, players, clubs = parse.parse_match(obj["raw"], obj["club_id"], obj["platform"], obj["match_type"])
         db.save_match(m, players, clubs, obj["raw"])

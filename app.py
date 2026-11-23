@@ -45,7 +45,7 @@ if ONLINE:   # its own database, rebuilt from online-data
 import clubs as _pkg  # noqa: E402
 
 # clubs/*.py in import order (a module comes after the ones it imports)
-_RELOAD_ORDER = ["config", "labels", "api", "parse", "db", "grades", "score", "analytics", "scout", "sync",
+_RELOAD_ORDER = ["config", "tz", "labels", "api", "parse", "db", "grades", "score", "analytics", "scout", "sync",
                  "collector_ctl", "cloud", "updater"]
 
 
@@ -83,7 +83,7 @@ def _reload_changed_code() -> bool:
 
 _CODE_RELOADED = _reload_changed_code()
 
-from clubs import analytics, api, cloud, collector_ctl, config, db, grades, labels, parse, score, scout, sync, updater  # noqa: E402,E501
+from clubs import analytics, api, cloud, collector_ctl, config, db, grades, labels, parse, score, scout, sync, tz, updater  # noqa: E402,E501
 
 if _CODE_RELOADED:   # numbers worked out by the old code
     st.cache_data.clear()
@@ -115,10 +115,15 @@ def online_sync():
         _pkg._online_checked = time.time()
 
 
+_TZ_BEFORE = os.environ.get("TZ")
 if ONLINE:
     online_sync()
 
 CFG = config.load()
+if ONLINE:   # Streamlit's servers run on UTC: show the club's own times (club.json brings the PC's time zone)
+    tz.apply(CFG.get("timezone"))
+    if os.environ.get("TZ") != _TZ_BEFORE:   # times worked out before were UTC
+        st.cache_data.clear()
 UI = config.ui()
 ARCH = {str(k): v for k, v in (CFG.get("archetype_names") or {}).items() if v}
 CLUB_ID = str(CFG.get("club_id") or "")
@@ -3212,8 +3217,8 @@ away, so it's handy for the club you're about to play (their games are kept for 
 **Online copy.** The tracker can also run online (Streamlit's free hosting) so the whole club can open it on their
 phones. The collector on the PC sends new data to the club's GitHub repository after every check, and the online
 app reads it from there, so new matches show up online a minute or two after they're saved. On the online copy,
-pick whose numbers the You page shows at the top of that page. Match notes and settings stay on the PC. Setting it
-up is in Settings > Online copy and the README.
+pick whose numbers the You page shows at the top of that page. Times are in the PC's time zone. Match notes and
+settings stay on the PC. Setting it up is in Settings > Online copy and the README.
 
 **Compared with your usual.** In a match report, your match is also compared with your own other matches (from 5
 matches): 50 is your usual level, 90 means better than 90% of your matches.

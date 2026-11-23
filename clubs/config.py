@@ -39,6 +39,8 @@ DEFAULTS = {
     "online_branch": "main",
     "online_token": "",
     "online_on": True,
+    # The club's time zone for the online copy (a POSIX TZ string); blank = this PC's own
+    "timezone": "",
     # Install new versions from GitHub by itself (when this folder is a git clone of the repository)
     "auto_update": True,
 }

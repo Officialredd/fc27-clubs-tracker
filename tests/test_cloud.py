@@ -12,7 +12,7 @@ sys.path.insert(0, str(HERE.parent))
 os.environ.setdefault("CLUBS_DATA_DIR", tempfile.mkdtemp())
 os.environ.setdefault("CLUBS_CONFIG", os.path.join(os.environ["CLUBS_DATA_DIR"], "config.json"))
 
-from clubs import cloud, db, parse  # noqa: E402
+from clubs import cloud, config, db, parse, tz  # noqa: E402
 
 RAW = json.loads((HERE / "fixtures" / "real_match_dnf.json").read_text(encoding="utf-8"))
 US, THEM = "2315992", "1881695"
@@ -88,7 +88,8 @@ def test_push_and_read_back():
     assert res["ok"] and res["sent"] == 6, res          # club, match, 2 scouted games, 1 scouting record, 1 snapshot
     assert "online-data/m/501.json" in files and "online-data/s/1881695/601.json" in files
     assert "online-data/f/1881695_501.json" in files and files["app.py"] == "code"
-    assert json.loads(files["online-data/club.json"])["club_id"] == US
+    club = json.loads(files["online-data/club.json"])
+    assert club["club_id"] == US and club["timezone"] == tz.describe()   # the PC's time zone, for the online copy
     # nothing new: nothing sent; one new match: one file, even when someone pushes at the same moment
     assert cloud.push(CFG, log=lambda *a: None)["sent"] == 0
     m2 = _match(502, 1_000_500)
@@ -114,6 +115,7 @@ def test_push_and_read_back():
         assert len(db.scout_matches_df()) == 2 and db.scout_fetches_df().iloc[0]["sr"] == 1600
         assert db.latest_club_snapshot(US).get("skill_rating") == 1500
         assert cloud.import_new()["n"] == 0                    # already read
+        assert config.load()["timezone"] == club["timezone"]
     finally:
         db.DB_PATH = old_db
 
