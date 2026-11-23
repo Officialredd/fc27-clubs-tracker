@@ -37,6 +37,7 @@ def _online_mode() -> bool:
 
 ONLINE = _online_mode()
 if ONLINE:   # its own database, rebuilt from online-data
+    os.environ["CLUBS_ONLINE"] = "1"   # decided once per app process: the settings set below would undo it next run
     _base = Path(tempfile.gettempdir()) / "fc27-clubs-online"
     os.environ.setdefault("CLUBS_DATA_DIR", str(_base / "data"))
     os.environ.setdefault("CLUBS_CONFIG", str(_base / "config.json"))
