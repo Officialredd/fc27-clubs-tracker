@@ -1,0 +1,7 @@
+# Your data and settings stay on your PC (config.json holds the online copy's access token)
+data/
+config.json
+.venv/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml

@@ -1,0 +1,14 @@
+# Clubs look: near-black pitch background, volt green accents
+[theme]
+base = "dark"
+primaryColor = "#c4f23a"
+backgroundColor = "#0a0e0d"
+secondaryBackgroundColor = "#17201c"
+textColor = "#e8efec"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+# The port (8527, next to the Wardogs tracker's 8501) is set in start_app.bat, so the online copy can use
+# whatever port its hosting gives it.
