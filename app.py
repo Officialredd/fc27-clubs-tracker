@@ -889,6 +889,12 @@ def viewer():
     return CFG.get("me_id"), CFG.get("me_name") or ""
 
 
+def pick_hint():
+    """Where to change whose numbers the You pages show."""
+    return ("Pick yourself under Whose numbers? at the top of the You page." if ONLINE
+            else "Pick yourself in Settings if this is wrong.")
+
+
 def data():
     me_id, me_name = viewer()
     return load_data(db.signature(), CLUB_ID, me_id, me_name, config.VERSION)
@@ -1104,8 +1110,7 @@ def my_kpis(d):
     me = d.me
     if me.empty:
         empty_state("🧍", "No matches for you yet",
-                    f"Nothing found for <b>{esc(CFG.get('me_name') or 'you')}</b> in the tracked matches. "
-                    "Pick yourself in Settings if this is wrong.")
+                    f"Nothing found for <b>{esc(viewer()[1] or 'you')}</b> in the tracked matches. " + pick_hint())
         return
     n = len(me)
     w = (me["result"] == "W").sum()
@@ -1421,7 +1426,7 @@ def page_home():
         collector_card()
         return
     if UI["home_kpis"]:
-        section("You", f"{esc(CFG.get('me_name') or '')} · all tracked matches")
+        section("You", f"{esc(viewer()[1])} · all tracked matches")
         my_kpis(d)
     a, b = st.columns([1.35, 1], gap="medium")
     with a:
@@ -1883,7 +1888,7 @@ def page_matches():
 def stats_you(d):
     me = d.me
     if me.empty:
-        empty_state("🧍", "No matches for you yet", "Pick yourself in Settings if your name is wrong.")
+        empty_state("🧍", "No matches for you yet", pick_hint())
         return
     my_kpis(d)
     a, b = st.columns(2, gap="medium")
@@ -2916,7 +2921,8 @@ def online_settings():
         a, b = st.columns([1.3, 1], gap="medium")
         with a:
             repo = st.text_input("GitHub repository", value=CFG.get("online_repo") or "",
-                                 placeholder="Officialredd/fc27-clubs-tracker", help="owner/name of the repository")
+                                 placeholder="owner/name",
+                                 help="Your GitHub user name and the repository name, e.g. yourname/fc27-clubs-tracker")
             token = st.text_input("Access token", value=CFG.get("online_token") or "", type="password",
                                   help="A fine-grained personal access token for that repository only, with "
                                        "Contents: Read and write. It's kept in config.json on this PC.")
@@ -3215,6 +3221,8 @@ matches): 50 is your usual level, 90 means better than 90% of your matches.
 **If EA doesn't answer.** EA sometimes blocks programs or has outages. The collector waits longer each time and
 tries again by itself. The Collector log in Settings shows what happened.
 """)
+    if ONLINE:   # the files below are the PC's
+        return
     with st.expander("Files"):
         st.markdown(f"""
 - `collector.py`: the background collector (`start_collector.bat` runs it in a window, to watch it work)
