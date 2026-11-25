@@ -908,10 +908,10 @@ hr {border-color: var(--line);}
 def load_data(sig, club_id, me_id, me_name, version=None):
     d = analytics.load(club_id, me_id, me_name)
     d.scouting = scout.Scouting(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
-    d.season_starts, d.season_range = [], None   # EA's league seasons (see clubs/seasons.py)
+    d.season_breaks, d.season_first, d.season_range = [], 1, None   # EA's league seasons (see clubs/seasons.py)
     if not d.matches.empty:
-        d.season_starts = seasons.starts(db.club_snapshots_df(club_id), d.matches)
-        d.matches["season"] = seasons.number(d.matches, d.season_starts)
+        d.season_breaks, d.season_first = seasons.breaks(db.club_snapshots_df(club_id), d.matches)
+        d.matches["season"] = seasons.number(d.matches, d.season_breaks, d.season_first)
     if d.ours.empty:
         return d
     # scouting: how strong each opponent was (their SR minus ours) and how they had been playing
@@ -1945,6 +1945,31 @@ def page_matches():
 
 
 # ================================================================= PAGE: STATS
+def where_you_play_best(me):
+    """Your average match grade by position and by archetype (only where you've played more than one)."""
+    if me.empty or "grade_score" not in me:
+        return
+    parts = []
+    for by, title, fmt_fn in (("pos", "Your grade by position", labels.position), ("archetype", "Your grade by archetype", arch_name)):
+        g = me.dropna(subset=[by]).groupby(by).agg(grade=("grade_score", "mean"), matches=("match_id", "nunique"),
+                                                   rating=("rating", "mean")).sort_values("grade", ascending=False)
+        if len(g) >= 2:
+            parts.append((title, g, fmt_fn))
+    if not parts:
+        return
+    cols = st.columns(2, gap="medium")
+    for col, (title, g, fmt_fn) in zip(cols, parts):
+        with col:
+            fig = go.Figure(go.Bar(x=[fmt_fn(i) for i in g.index], y=g["grade"], marker_color=[grade_color(v) for v in g["grade"]],
+                                   text=[f"{grades.letter(v)} {v:.0f} · {plural(int(n_), 'match', 'matches')}"
+                                         for v, n_ in zip(g["grade"], g["matches"])], textposition="outside",
+                                   cliponaxis=False, customdata=np.stack([g["matches"], g["rating"]], axis=1),
+                                   hovertemplate="%{x}: grade <b>%{y:.0f}</b><br>%{customdata[0]} matches, "
+                                                 "rating %{customdata[1]:.2f}<extra></extra>"))
+            fig.update_layout(title=title, yaxis=dict(range=[0, 108], title="Average match grade"), showlegend=False)
+            chart(fig, height=300)
+
+
 def stats_you(d):
     me = d.me
     if me.empty:
@@ -1992,6 +2017,7 @@ def stats_you(d):
         fig.update_layout(title="Defending", barmode="overlay", xaxis_title="Match")
         chart(few_matches(fig, me))
     section("By position, archetype and match type")
+    where_you_play_best(me)
     for by, label, fmt_fn in (("pos", "Position", labels.position), ("archetype", "Archetype", arch_name),
                               ("match_type", "Match type", labels.match_type)):
         g = analytics.group_stats(me, by)
@@ -2120,6 +2146,83 @@ def stats_teammates(d):
             "ga_pm": st.column_config.NumberColumn("Conceded / match", format="%.2f")})
 
 
+def strength_charts(d, k):
+    """Their strength match by match, the luck meter, every match as a dot and you next to the clubs you've played."""
+    k = k.sort_values("game_no")
+    hover = np.stack([k["opp_name"].fillna("").map(str), k["goals_for"], k["goals_against"], k["sr_diff"],
+                      k["when"].dt.strftime("%a %d %b")], axis=1)
+    a, b = st.columns(2, gap="medium")
+    with a:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=k["game_no"], y=k["our_sr"], mode="lines", name="Your SR",
+                                 line=dict(color=VOLT, width=3, shape="hv"),
+                                 hovertemplate="Match %{x}: your SR <b>%{y:.0f}</b><extra></extra>"))
+        fig.add_trace(go.Scatter(x=k["game_no"], y=k["opp_sr"], mode="markers", name="Their SR (colour: result)",
+                                 marker=dict(size=10, color=[RESULT_COLORS.get(r) for r in k["result"]],
+                                             line=dict(width=1, color="#0a0e0d")), customdata=hover,
+                                 hovertemplate="%{customdata[0]}: <b>%{y:.0f}</b> SR (%{customdata[3]:+.0f})<br>"
+                                               "%{customdata[1]}-%{customdata[2]} · %{customdata[4]}<extra></extra>"))
+        fig.update_layout(title="Their skill rating and yours, match by match", xaxis_title="Club match",
+                          yaxis_title="Skill rating")
+        chart(few_matches(fig, k))
+    with b:
+        lk = analytics.luck(d.matches)
+        if not lk.empty:
+            diff = lk["points_cum"].iloc[-1] - lk["expected_cum"].iloc[-1]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=lk["game_no"], y=lk["expected_cum"], mode="lines", name="Predicted",
+                                     line=dict(color="#8a9a93", width=2, dash="dot"),
+                                     hovertemplate="After match %{x}: <b>%{y:.1f}</b> points predicted<extra></extra>"))
+            fig.add_trace(go.Scatter(x=lk["game_no"], y=lk["points_cum"], mode="lines", name="Actual",
+                                     line=dict(color=VOLT, width=3), fill="tonexty",
+                                     fillcolor="rgba(62,207,142,0.12)" if diff >= 0 else "rgba(242,92,84,0.12)",
+                                     hovertemplate="After match %{x}: <b>%{y}</b> points<extra></extra>"))
+            fig.update_layout(title=f"Luck meter: {diff:+.1f} points against the prediction", xaxis_title="Club match",
+                              yaxis_title="Points, added up")
+            chart(few_matches(fig, k))
+            st.caption("The prediction comes from the skill ratings, like chess ratings: a club 100 SR stronger comes "
+                       "out on top about 64% of the time, and draws happen as often as in your own matches. Above the "
+                       "grey line means more points than the strength of your opponents predicted.")
+    a, b = st.columns(2, gap="medium")
+    with a:
+        fig = go.Figure()
+        for res, name in (("W", "Won"), ("D", "Drew"), ("L", "Lost")):
+            g = k[k["result"] == res]
+            if g.empty:
+                continue
+            fig.add_trace(go.Scatter(x=g["sr_diff"], y=g["gd"], mode="markers", name=name,
+                                     marker=dict(size=12, color=RESULT_COLORS[res], opacity=0.85,
+                                                 line=dict(width=1, color="#0a0e0d")),
+                                     customdata=hover[k["result"].values == res],
+                                     hovertemplate="%{customdata[0]} (%{x:+.0f} SR)<br>%{customdata[1]}-%{customdata[2]}"
+                                                   " · %{customdata[4]}<extra></extra>"))
+        fig.add_vline(x=0, line=dict(color="#3a4a43", width=1, dash="dot"))
+        fig.add_hline(y=0, line=dict(color="#3a4a43", width=1))
+        fig.update_layout(title="Every match: how strong they were and the goal difference",
+                          xaxis_title="Their SR minus yours (right: stronger)", yaxis_title="Goal difference")
+        chart(fig)
+    with b:
+        sc = getattr(d, "scouting", None)
+        t, n_clubs = (analytics.lobby(d.matches, sc.games, sc.lines, CLUB_ID) if sc is not None and not sc.empty
+                      else (pd.DataFrame(), 0))
+        if not t.empty and n_clubs >= 5:
+            t = t.iloc[::-1]
+            ylab = [f"{esc(lb)}<br><span style='font-size:11px;color:#8a9a93'>you {fmt(o, dec_, suf)} · "
+                    f"they {fmt(md, dec_, suf)}</span>" for lb, o, md, dec_, suf in
+                    zip(t["label"], t["ours"], t["median"], t["dec"], t["suffix"])]
+            fig = go.Figure(go.Bar(x=t["pct"], y=ylab, orientation="h", text=[f"{v:.0f}%" for v in t["pct"]],
+                                   textposition="outside", cliponaxis=False,
+                                   marker_color=[GOOD if v >= 60 else DRAW if v >= 40 else BAD for v in t["pct"]],
+                                   hovertemplate="Better than <b>%{x:.0f}%</b> of them<extra></extra>"))
+            fig.add_vline(x=50, line=dict(color="#5c6b65", width=1, dash="dot"))
+            fig.update_layout(title=f"You next to the {n_clubs} clubs you've played",
+                              xaxis=dict(range=[0, 112], tickvals=[0, 50, 100], ticksuffix="%",
+                                         title="% of clubs below you"), showlegend=False)
+            chart(fig, height=380)
+            st.caption("Their numbers come from their own last games (scouting); yours from all your tracked matches. "
+                       "Shots and tackles are per human player, and the team grade leaves out opponent strength.")
+
+
 def strength_section(d):
     m = d.matches
     k = m.dropna(subset=["sr_diff"]) if "sr_diff" in m else m.iloc[0:0]
@@ -2161,6 +2264,7 @@ def strength_section(d):
                                hovertemplate="%{x}: <b>%{y:.2f}</b> points a match<br>%{text}<extra></extra>", cliponaxis=False))
         fig.update_layout(title="Points per match by opponent strength", yaxis=dict(range=[0, 3.4]), showlegend=False)
         chart(fig)
+    strength_charts(d, k)
     a, b = st.columns(2, gap="medium")
     for col, title, df in ((a, "Best wins (strongest clubs beaten)", k[k["result"] == "W"].nlargest(5, "sr_diff")),
                            (b, "Worst losses (weakest clubs lost to)", k[k["result"] == "L"].nsmallest(5, "sr_diff"))):
@@ -2257,6 +2361,17 @@ def stats_time(d):
             chart(fig)
     sess = analytics.session_table(m, gap)
     if not sess.empty:
+        ssr = analytics.session_sr(sess, season_snaps(d, db.club_snapshots_df(CLUB_ID)))
+        if not ssr.empty:
+            fig = go.Figure(go.Bar(
+                x=ssr["start"].dt.strftime("%a %d %b, %H:%M"), y=ssr["change"],
+                marker_color=[GOOD if v > 0 else BAD if v < 0 else "#5c6b65" for v in ssr["change"]],
+                text=[f"{v:+.0f}" for v in ssr["change"]], textposition="outside", cliponaxis=False,
+                customdata=np.stack([ssr["matches"], ssr["w"], ssr["d"], ssr["l"], ssr["sr_before"], ssr["sr_after"]], axis=1),
+                hovertemplate="%{x}<br><b>%{y:+.0f}</b> SR (%{customdata[4]:.0f} to %{customdata[5]:.0f})<br>"
+                              "%{customdata[0]} matches: %{customdata[1]}-%{customdata[2]}-%{customdata[3]}<extra></extra>"))
+            fig.update_layout(title="Skill rating won or lost per session", yaxis_title="Skill rating", xaxis_type="category")
+            chart(fig)
         section("Sessions", f"Matches less than {gap} minutes apart count as one session.")
         st.dataframe(sess.head(30), hide_index=True, width="stretch", column_config={
             "start": st.column_config.DatetimeColumn("Started", format="ddd D MMM, HH:mm"),
@@ -2558,7 +2673,25 @@ def stats_compare(d):
                                  hovertemplate="Rating %{y:.1f}<extra>" + esc(t.loc[p, "name"]) + "</extra>"))
         fig.update_layout(title="How steady: spread of match ratings", showlegend=False, yaxis=dict(range=[0, 10.4]))
         chart(fig)
-    with b:
+    with b:   # finishing: shots and goals a match, with lines for the share of shots that go in
+        fig = go.Figure()
+        top = max([float(t.loc[p, "shots_pm"]) for p in ids if not isna(t.loc[p, "shots_pm"])] + [1.0]) * 1.2
+        for conv in (0.1, 0.2, 0.3, 0.5):
+            fig.add_trace(go.Scatter(x=[0, top], y=[0, conv * top], mode="lines+text", text=["", f"{conv:.0%}"],
+                                     textposition="top left", textfont=dict(color="#5c6b65", size=11), hoverinfo="skip",
+                                     line=dict(color="#2a3530", width=1, dash="dot"), showlegend=False))
+        for p in ids:
+            r = t.loc[p]
+            fig.add_trace(go.Scatter(x=[r["shots_pm"]], y=[r["goals_pm"]], mode="markers+text", text=[r["name"]],
+                                     textposition="top center", name=r["name"], showlegend=False,
+                                     marker=dict(size=16, color=colors[p], line=dict(width=1, color="#0a0e0d")),
+                                     hovertemplate=f"<b>{esc(r['name'])}</b><br>%{{x:.1f}} shots and %{{y:.2f}} goals a match<br>"
+                                                   f"{fmt(r['conversion'], 0, '%')} of shots scored<extra></extra>"))
+        fig.update_layout(title="Finishing (lines: share of shots scored)", xaxis=dict(title="Shots a match", range=[0, top]),
+                          yaxis=dict(title="Goals a match", rangemode="tozero"))
+        chart(fig)
+    a, _ = st.columns([1, 1], gap="medium")
+    with a:
         fig = go.Figure()
         cats = ["Win %", "Pass accuracy", "Tackle success", "Conversion"]
         for p in ids:
@@ -2598,8 +2731,7 @@ def season_view(d, no):
             if "game_no" in df:
                 df["game_no"] = df["game_no"].map(renum)
             setattr(v, name, df)
-    starts = d.season_starts
-    v.season_range = (starts[no - 2] if no >= 2 else None, starts[no - 1] if no - 1 < len(starts) else None)
+    v.season_range = seasons.span(d.season_breaks, d.season_first, no)
     return v
 
 
@@ -2620,9 +2752,9 @@ def season_snaps(d, snaps):
 def season_picker(d):
     """Stats for all seasons or one of them: the picker shows once there's more than one season (not on the
     Seasons section, which compares them all; the pick is kept for when you come back)."""
-    if "season" not in d.matches or d.matches["season"].max() < 2:
+    if "season" not in d.matches or d.matches["season"].nunique() < 2:
         return d
-    tab = seasons.table(d.matches, None, d.season_starts)   # newest first
+    tab = seasons.table(d.matches, None, d.season_breaks, d.season_first)   # newest first
     opts = ["All seasons"] + list(tab["label"])
     keep = st.session_state.get("stats_season_keep")
     pick = keep if keep in opts else "All seasons"
@@ -2637,13 +2769,14 @@ def season_picker(d):
 
 def stats_seasons(d):
     snaps = db.club_snapshots_df(CLUB_ID)
-    tab = seasons.table(d.matches, snaps, d.season_starts)
+    tab = seasons.table(d.matches, snaps, d.season_breaks, d.season_first)
     if tab.empty:
         return
     tab["grade"] = tab["team_grade"].map(lambda v: "" if isna(v) else f"{grades.letter(v)} {v:.0f}") if "team_grade" in tab else ""
-    section("Seasons", "EA's Clubs league seasons, newest first. Points count 3 for a win and 1 for a draw.")
+    section("Seasons", "EA's Clubs league seasons (numbered like EA's calendar), newest first. A season ends after its "
+                       "playoffs. Points count 3 for a win and 1 for a draw.")
     cols = ["label", "matches", "w", "d", "l", "points", "ppg", "win_pct", "gf", "ga", "clean_sheets", "grade",
-            "sr_start", "sr_end", "division", "promotions"]
+            "sr_start", "sr_end", "division", "promotions", "playoffs"]
     st.dataframe(tab[[c for c in cols if c in tab]], hide_index=True, width="stretch", column_config={
         "label": "Season", "matches": "Matches", "w": "W", "d": "D", "l": "L", "points": "Points",
         "ppg": st.column_config.NumberColumn("Points / match", format="%.2f"),
@@ -2651,10 +2784,11 @@ def stats_seasons(d):
         "clean_sheets": "Clean sheets", "grade": "Team grade (avg)",
         "sr_start": st.column_config.NumberColumn("SR at the start", format="%d"),
         "sr_end": st.column_config.NumberColumn("SR now / at the end", format="%d"),
-        "division": st.column_config.NumberColumn("Division", format="%d"), "promotions": "Promotions"})
+        "division": st.column_config.NumberColumn("Division", format="%d"), "promotions": "Promotions",
+        "playoffs": "Playoff matches"})
     if len(tab) < 2:
-        st.caption("Each new season gets its own row here as soon as EA starts it, and a Season picker then appears "
-                   "at the top of Stats, so every section can show one season at a time.")
+        st.caption("The next season gets its own row as soon as EA starts it (after the playoffs), and a Season picker "
+                   "then appears at the top of Stats, so every section can show one season at a time.")
     m = d.matches
     a, b = st.columns(2, gap="medium")
     with a:   # the points race: this season against the earlier ones, match by match
@@ -3382,10 +3516,13 @@ zero for weaker clubs). It also counts in the grades: every 100 SR they have abo
 *upset win*, losing to a weaker one an *upset loss*. EA keeps only a club's last 10 games of each type, so for older
 matches their games after the match are used, and the report says so. Stats > Opponents has your results by strength.
 
-**Seasons.** EA's match data doesn't say which league season a match was in, so the tracker notices a new season
-when EA's season record starts again from zero (or EA's count of finished seasons goes up), and uses the new
-season's game count to tell which matches belong to it. Stats > Seasons compares the seasons and their players, and
-once there's more than one, a Season picker at the top of Stats shows every section for one season. On phones, the
+**Seasons.** A Clubs league season ends with the game's season, after a final week of playoffs. EA's match data
+doesn't say which season a match was in, so the tracker notices a new season when EA's season record starts again
+from zero (or EA's count of finished seasons goes up), and uses the new season's game count to tell which matches
+belong to it. Seasons are numbered like EA's calendar (Season 2 runs from 22 October to 3 December 2026), and if
+the collector saw nothing around a season change, the calendar date splits the matches. Stats > Seasons compares
+the seasons and their players, and once there's more than one, a Season picker at the top of Stats shows every
+section for one season. On phones, the
 pages that don't fit in the top bar are under *More*.
 
 **Search.** Look up any club by name (or club ID), or pick one you've played: you get their skill rating and

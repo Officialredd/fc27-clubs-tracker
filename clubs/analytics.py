@@ -410,3 +410,96 @@ def duel_matrix(lines: pd.DataFrame, ids: list, col: str = "rating") -> tuple[pd
             if k:
                 share.at[a, b] = 100.0 * ((x[ok] > y[ok]).sum() + 0.5 * (x[ok] == y[ok]).sum()) / k
     return share, n
+
+
+# ---------------------------------------------------------------- strength, luck and the clubs you've played
+ELO_SCALE = 400.0   # like chess ratings: 400 SR more means about 10 to 1
+
+
+def expected_points(sr_diff, draw_rate: float = 0.1):
+    """Points a match the skill ratings predict (sr_diff = their SR minus yours): the stronger club usually comes out
+    on top, chess-style, and a share of matches are draws."""
+    p = 1.0 / (1.0 + np.power(10.0, np.asarray(sr_diff, dtype=float) / ELO_SCALE))
+    return 3.0 * (1.0 - draw_rate) * p + draw_rate
+
+
+def luck(m: pd.DataFrame) -> pd.DataFrame:
+    """Scouted matches in order with actual and predicted points, each added up (the 'luck meter')."""
+    k = m.dropna(subset=["sr_diff"]).sort_values("game_no") if "sr_diff" in m else m.iloc[0:0]
+    if k.empty:
+        return pd.DataFrame()
+    draws = float((m["result"] == "D").mean()) if len(m) else 0.1
+    exp = expected_points(k["sr_diff"], min(max(draws, 0.05), 0.3))
+    return pd.DataFrame({"game_no": k["game_no"].values, "match_id": k["match_id"].values,
+                         "opp_name": k["opp_name"].fillna("").values, "sr_diff": k["sr_diff"].values,
+                         "points": k["points"].values, "expected": exp,
+                         "points_cum": k["points"].cumsum().values, "expected_cum": np.cumsum(exp)})
+
+
+LOBBY_STATS = [   # (label, column, decimals, higher is better, suffix)
+    ("Goals a match", "gf", 2, True, ""), ("Conceded a match", "ga", 2, False, ""),
+    ("Shots per player", "shots", 1, True, ""), ("Pass accuracy", "pass_pct", 0, True, "%"),
+    ("Tackles won per player", "tackles", 1, True, ""), ("Team grade", "grade", 0, True, ""),
+]
+
+
+def lobby(m: pd.DataFrame, games: pd.DataFrame, lines: pd.DataFrame, own_club=None) -> tuple[pd.DataFrame, int]:
+    """Your averages next to the clubs you've played (from their own last games): for each number, the share of
+    those clubs you're better than. Shots and tackles are per human player (EA only counts the humans, and clubs
+    bring different numbers of them); the team grade leaves out the opponent-strength part (their opponents' skill
+    rating isn't known). Returns (table, number of clubs)."""
+    if m.empty or games is None or games.empty or lines is None or lines.empty:
+        return pd.DataFrame(), 0
+    g = games[games["persp"].astype(str) != str(own_club)]
+    ln = lines[lines["persp"].astype(str) != str(own_club)]
+    per_game = ln.groupby(["persp", "match_id"]).agg(shots=("shots", "sum"), passes_made=("passes_made", "sum"),
+                                                      pass_attempts=("pass_attempts", "sum"),
+                                                      tackles_made=("tackles_made", "sum"), humans=("name", "size"))
+    per_game = per_game.reset_index()
+    per_game["shots"] = per_game["shots"] / per_game["humans"]
+    per_game["tackles_made"] = per_game["tackles_made"] / per_game["humans"]
+    tot = per_game.groupby("persp").agg(shots=("shots", "mean"), tackles=("tackles_made", "mean"),
+                                        pm=("passes_made", "sum"), pa=("pass_attempts", "sum"))
+    clubs = g.groupby("persp").agg(gf=("goals_for", "mean"), ga=("goals_against", "mean"),
+                                   grade=("team_grade_score", "mean"), n=("match_id", "nunique"))
+    clubs = clubs.join(tot, how="left")
+    clubs["pass_pct"] = 100.0 * clubs["pm"] / clubs["pa"].where(clubs["pa"] > 0)
+    clubs = clubs[clubs["n"] >= 3]
+    humans = m["our_players"].where(m["our_players"] > 0) if "our_players" in m else np.nan
+    grade = m["team_grade_score"] - m["team_str_adj"].fillna(0) if "team_str_adj" in m else m.get("team_grade_score")
+    ours = {"gf": m["goals_for"].mean(), "ga": m["goals_against"].mean(),
+            "shots": (m["us_shots"] / humans).mean() if "us_shots" in m else np.nan,
+            "tackles": (m["us_tackles_made"] / humans).mean() if "us_tackles_made" in m else np.nan,
+            "pass_pct": (100.0 * m["us_passes_made"].sum() / m["us_pass_attempts"].sum()
+                         if "us_pass_attempts" in m and m["us_pass_attempts"].sum() else np.nan),
+            "grade": grade.mean() if grade is not None else np.nan}
+    rows = []
+    for label, col, dec, higher, suf in LOBBY_STATS:
+        theirs = clubs[col].dropna()
+        mine = ours.get(col)
+        if theirs.empty or mine is None or pd.isna(mine):
+            continue
+        better = (theirs < mine).sum() if higher else (theirs > mine).sum()
+        pct = 100.0 * (better + 0.5 * (theirs == mine).sum()) / len(theirs)
+        rows.append({"label": label, "ours": mine, "median": theirs.median(), "pct": pct, "clubs": len(theirs),
+                     "dec": dec, "suffix": suf, "higher": higher})
+    return pd.DataFrame(rows), int(len(clubs))
+
+
+def session_sr(sess: pd.DataFrame, snaps: pd.DataFrame) -> pd.DataFrame:
+    """Skill rating before and after each session (from the club snapshots), oldest first."""
+    if sess.empty or snaps is None or snaps.empty or "skill_rating" not in snaps:
+        return pd.DataFrame()
+    s = sess.sort_values("start").reset_index(drop=True)
+    sn = snaps.dropna(subset=["skill_rating"]).sort_values("at")
+    rows = []
+    for i, r in s.iterrows():
+        before = sn[sn["at"] < r["start"]]
+        nxt = s["start"].iloc[i + 1] if i + 1 < len(s) else None
+        after = sn[(sn["at"] > r["end"]) & ((sn["at"] < nxt) if nxt is not None else True)]
+        if before.empty or after.empty:
+            continue
+        a, b = float(before["skill_rating"].iloc[-1]), float(after["skill_rating"].iloc[-1])
+        rows.append({"start": r["start"], "end": r["end"], "matches": int(r["matches"]), "w": int(r["w"]),
+                     "d": int(r["d"]), "l": int(r["l"]), "sr_before": a, "sr_after": b, "change": b - a})
+    return pd.DataFrame(rows)

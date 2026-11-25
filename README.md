@@ -35,10 +35,12 @@ Open the dashboard with **start_app.bat** (it runs at http://localhost:8527, nex
 - **You**: your key numbers, the last match from your side and your charts
 - **Matches**: every match; click one for the full report (team stats, both line-ups, opponent scouting, your
   match grade)
-- **Stats**: Team, You, Compare (any 2 to 5 club players side by side, head to head in the matches they played
-  together, profiles, rating over time), Teammates, Opponents (including results by opponent strength), Time
-  (when you play, early vs late in a session), Records, Seasons (every EA league season side by side, players per
-  season; once there's more than one season, a Season picker shows any section for one season)
+- **Stats**: Team, You (including your grade by position and archetype), Compare (any 2 to 5 club players side
+  by side, head to head in the matches they played together, profiles, rating over time, how steady, finishing),
+  Teammates, Opponents (results by opponent strength, their skill rating match by match, a luck meter against what
+  the skill ratings predicted, every match as a dot, and you next to the clubs you've played), Time (when you play,
+  early vs late in a session, skill rating won or lost per session), Records, Seasons (every EA league season side
+  by side, players per season; once there's more than one season, a Season picker shows any section for one season)
 - **Squad**: EA's season numbers for every member plus everyone's tracked numbers and a player profile
   (with a shortcut to compare that player with the others)
 - **Search**: look up any club by name or club ID (or one you've played): their skill rating and record, last 10
