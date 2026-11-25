@@ -924,9 +924,36 @@ html, body {background-color: #0a0e0d;}
 # Phones colour the bars around the page (the clock and battery at the top, the address bar at the bottom) from
 # the page itself, and the page Streamlit's hosting wraps around the app asks for white. The app is served from
 # the same site, so it can paint that page in the app's colours too (on the PC there's no wrapper: nothing changes).
+# Tapping the top of an iPhone's screen scrolls that outer page to the top, but the app scrolls inside it, so the
+# outer page is given 1 pixel to scroll and kept there: when a tap scrolls it back, the app scrolls to the top too.
 st.html("""<div class="paint-hook"></div><script>
 (function () {
   var BG = "#0a0e0d";
+  function tapToTop(top, app) {
+    try {
+      top.__clubsApp = app;   // the newest app page (it can be reloaded inside the wrapper)
+      if (top === app || top.__clubsTapTop) return;
+      if (!(top.matchMedia && top.matchMedia("(pointer: coarse)").matches)) return;   // phones and tablets only
+      top.__clubsTapTop = true;
+      var d = top.document, spacer = d.createElement("div");
+      spacer.setAttribute("aria-hidden", "true");
+      spacer.style.height = "1px";
+      d.body.appendChild(spacer);
+      var park = function () { if (top.scrollY < 1) top.scrollTo(0, 1); };
+      park();
+      setTimeout(park, 400);
+      var busy = false;
+      top.addEventListener("scroll", function () {
+        if (busy || top.scrollY >= 1) return;
+        busy = true;
+        try {
+          var main = top.__clubsApp.document.querySelector('[data-testid="stMain"]');
+          if (main) main.scrollTo({top: 0, behavior: "smooth"});
+        } catch (e) {}
+        setTimeout(function () { park(); busy = false; }, 600);
+      }, {passive: true});
+    } catch (e) {}
+  }
   function meta(d, name, content) {
     var ms = d.querySelectorAll('meta[name="' + name + '"]');
     if (!ms.length) {
@@ -946,12 +973,14 @@ st.html("""<div class="paint-hook"></div><script>
       meta(d, "color-scheme", "dark");
     } catch (e) {}   // a page from another site: leave it alone
   }
-  var w = window;
+  var w = window, top = window;
   paint(w);
   for (var k = 0; k < 3 && w.parent && w.parent !== w; k++) {
     w = w.parent;
     paint(w);
+    try { if (w.document) top = w; } catch (e) { break; }   // the outermost page from this site
   }
+  tapToTop(top, window);
 })();
 </script>""", unsafe_allow_javascript=True)
 
