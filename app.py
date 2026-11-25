@@ -925,7 +925,7 @@ html, body {background-color: #0a0e0d;}
 # the page itself, and the page Streamlit's hosting wraps around the app asks for white. The app is served from
 # the same site, so it can paint that page in the app's colours too (on the PC there's no wrapper: nothing changes).
 # Tapping the top of an iPhone's screen scrolls that outer page to the top, but the app scrolls inside it, so the
-# outer page is given 1 pixel to scroll and kept there: when a tap scrolls it back, the app scrolls to the top too.
+# outer page is given 2 pixels to scroll and kept there: when a tap scrolls it back, the app scrolls to the top too.
 st.html("""<div class="paint-hook"></div><script>
 (function () {
   var BG = "#0a0e0d";
@@ -937,14 +937,14 @@ st.html("""<div class="paint-hook"></div><script>
       top.__clubsTapTop = true;
       var d = top.document, spacer = d.createElement("div");
       spacer.setAttribute("aria-hidden", "true");
-      spacer.style.height = "1px";
+      spacer.style.height = "2px";
       d.body.appendChild(spacer);
-      var park = function () { if (top.scrollY < 1) top.scrollTo(0, 1); };
+      var park = function () { if (top.scrollY < 0.5) top.scrollTo(0, 2); };   // zoomed screens scroll in fractions
       park();
       setTimeout(park, 400);
       var busy = false;
       top.addEventListener("scroll", function () {
-        if (busy || top.scrollY >= 1) return;
+        if (busy || top.scrollY >= 0.5) return;
         busy = true;
         try {
           var main = top.__clubsApp.document.querySelector('[data-testid="stMain"]');
