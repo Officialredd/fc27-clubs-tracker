@@ -630,6 +630,7 @@ div[data-testid="stExpander"] summary p {font-weight: 600;}
             color: var(--text); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .kpi.good .kpi-value {color: #7fe6b5;} .kpi.bad .kpi-value {color: #ff8f88;} .kpi.volt .kpi-value {color: var(--volt2);}
 .kpi.gold .kpi-value {color: var(--gold);}
+.kpi-text {font-size: 22px; line-height: 1.15; display: inline-block;}   /* a name in a number's place */
 .kpi-sub {font-size: 12.5px; color: var(--muted); margin-top: 1px;}
 .kpi-sub.good {color: var(--good);} .kpi-sub.bad {color: var(--bad);}
 
@@ -1081,6 +1082,31 @@ def run_check(full=True):
 
 
 # ================================================================= SHARED BLOCKS
+def sr_change(since=None):
+    """(skill rating change, from when) over the club snapshots (since a moment, or since tracking began)."""
+    if not CLUB_ID:
+        return None, None
+    sn = db.club_snapshots_df(CLUB_ID)
+    if sn.empty:
+        return None, None
+    sn = sn.dropna(subset=["skill_rating"]).sort_values("at")
+    if since is not None:
+        sn = sn[sn["at"] >= since]
+    if len(sn) < 2:
+        return None, None
+    return float(sn["skill_rating"].iloc[-1] - sn["skill_rating"].iloc[0]), sn["at"].iloc[0]
+
+
+def fans_tag(snap) -> str:
+    """' · Fans: Hometown Heroes': the club's reputation, which comes from its fans (not its skill rating)."""
+    rep = snap.get("reputation")
+    if rep is None or str(rep) == "":
+        return ""
+    nxt = labels.next_reputation(rep)
+    tip = "EA's reputation level, from the club's fans" + (f" (next: {nxt})" if nxt else "")
+    return f' · <span title="{esc(tip)}">Fans: {esc(labels.reputation(rep))}</span>'
+
+
 def hero(d):
     club = db.club(CLUB_ID)
     snap = db.latest_club_snapshot(CLUB_ID)
@@ -1090,10 +1116,11 @@ def hero(d):
     sw, sd, sl = snap.get("season_wins"), snap.get("season_ties"), snap.get("season_losses")
     season_rec = f"{sw}-{sd}-{sl}" if sw is not None else f"{rec['w']}-{rec['d']}-{rec['l']}"
     pts = snap.get("season_points")
+    chg, since = sr_change()
     stats = [
         ("Season", season_rec, "W-D-L"),
         ("Points", fmt(pts) if pts is not None else fmt(3 * rec["w"] + rec["d"]), "this season" if pts is not None else "tracked"),
-        ("Skill rating", fmt(snap.get("skill_rating")), labels.reputation(snap.get("reputation"))),
+        ("Skill rating", fmt(snap.get("skill_rating")), f"{chg:+.0f} since {since:%d %b}" if chg is not None else ""),
         ("Streak", f'{stk.get("current") or "-"}{stk.get("current_n") or ""}', f'best run W{stk.get("best_win", 0)}'),
     ]
     if "team_grade_score" in m and m["team_grade_score"].notna().any():
@@ -1105,7 +1132,7 @@ def hero(d):
     sub = " · ".join(x for x in [club.get("stadium"), labels.platform(CFG.get("platform")),
                                  plural(rec["n"], "match", "matches") + " tracked"] if x)
     st.html(f'<div class="hero">{crest(club.get("crest_url"), 104)}<div><div class="eyebrow">'
-            f'{esc(labels.division(snap.get("division")))}</div><div class="hero-name">{esc(name)}</div>'
+            f'{esc(labels.division(snap.get("division")))}{fans_tag(snap)}</div><div class="hero-name">{esc(name)}</div>'
             f'<div class="hero-sub">{esc(sub)}</div>{form_dots(m["result"] if not m.empty else [])}</div>'
             f'<div class="hero-stats">{stat_html}</div></div>')
 
@@ -1613,7 +1640,10 @@ def season_card(d, now):
               {"label": "Skill rating", "value": fmt(snap.get("skill_rating")),
                "sub": f"{chg:+.0f} since {sn['at'].iloc[0]:%d %b}" if chg is not None else "",
                "sub_tone": "good" if (chg or 0) > 0 else "bad" if (chg or 0) < 0 else ""},
-              {"label": "Form", "value": form_dots(m["result"], n=5), "sub": "last 5 matches"}])
+              {"label": "Form", "value": form_dots(m["result"], n=5), "sub": "last 5 matches"},
+              {"label": "Fans", "value": f'<span class="kpi-text">{esc(labels.reputation(snap.get("reputation")))}</span>',
+               "sub": (f"next: {labels.next_reputation(snap.get('reputation'))}"
+                       if labels.next_reputation(snap.get("reputation")) else "EA's reputation level")}])
         if nxt is not None and nxt[0] - now <= playoffs.SOON:
             div = str(snap.get("division")) if snap.get("division") is not None else None
             lim = playoffs.LIMITS.get(div) if div else None

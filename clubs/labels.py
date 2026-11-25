@@ -50,8 +50,15 @@ def division(code) -> str:
 
 
 def reputation(code) -> str:
+    """The club's reputation (EA's name for it), which comes from how many fans the club has."""
     c = _s(code)
     return REPUTATION.get(c, f"Tier {c}" if c else "-")
+
+
+def next_reputation(code) -> str | None:
+    """The fan level after this one (None at the top or when unknown)."""
+    c = _s(code)
+    return REPUTATION.get(str(int(c) + 1)) if c and c.isdigit() else None
 
 
 def position(p) -> str:
