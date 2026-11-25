@@ -503,3 +503,72 @@ def session_sr(sess: pd.DataFrame, snaps: pd.DataFrame) -> pd.DataFrame:
         rows.append({"start": r["start"], "end": r["end"], "matches": int(r["matches"]), "w": int(r["w"]),
                      "d": int(r["d"]), "l": int(r["l"]), "sr_before": a, "sr_after": b, "change": b - a})
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------- skill rating and division, step by step
+SNAP_BY = ("match", "session", "day", "time")
+
+
+def snap_by(snaps: pd.DataFrame, m: pd.DataFrame, col: str = "skill_rating", by: str = "match",
+            gap_minutes: float = 45, fill: str = "interpolate") -> pd.DataFrame:
+    """A number from the club snapshots (skill rating, division) after each match, session or day: the last value
+    the collector saw before the next one began. 'time' gives every check instead. Where the collector saw nothing
+    in between, the value is filled in from the known ones around it (fill: 'interpolate' or 'ffill') and marked
+    estimated. Columns: x, label, info, result, value, change (from the one before), estimated."""
+    if snaps is None or snaps.empty or col not in snaps:
+        return pd.DataFrame()
+    sn = snaps[["at", col]].copy()
+    sn[col] = pd.to_numeric(sn[col], errors="coerce")
+    sn = sn.dropna(subset=[col]).sort_values("at")
+    if sn.empty:
+        return pd.DataFrame()
+    if by == "time":
+        out = pd.DataFrame({"x": sn["at"].values, "label": sn["at"].dt.strftime("%a %d %b, %H:%M").values,
+                            "info": sn["at"].dt.strftime("%a %d %b, %H:%M").values, "result": None,
+                            "value": sn[col].values, "estimated": False})
+        out["change"] = out["value"].diff()
+        return out
+    mm = m.sort_values("when") if m is not None and not m.empty else pd.DataFrame()
+    if mm.empty:
+        return pd.DataFrame()
+
+    def rec(g):
+        w, d, lo = (g["result"] == "W").sum(), (g["result"] == "D").sum(), (g["result"] == "L").sum()
+        return f"{len(g)} {'match' if len(g) == 1 else 'matches'}: {w}-{d}-{lo}"
+
+    groups = []
+    if by == "match":
+        for _, r in mm.iterrows():
+            opp = r.get("opp_name") if isinstance(r.get("opp_name"), str) else "?"
+            groups.append((r["when"], {"x": r["game_no"], "label": f"Match {r['game_no']}", "result": r["result"],
+                                       "info": f"Match {r['game_no']}: {opp} {int(r['goals_for'])}-{int(r['goals_against'])} "
+                                               f"({r['result']}) · {r['when']:%a %d %b, %H:%M}"}))
+    elif by == "session":
+        sess = sessions(mm, gap_minutes)
+        for _, g in sess.groupby("session"):
+            t = g["when"].min()
+            groups.append((t, {"x": t, "label": f"{t:%a %d %b, %H:%M}", "result": None,
+                               "info": f"Session {t:%a %d %b, %H:%M} · {rec(g)}"}))
+    elif by == "day":
+        for day, g in mm.groupby(mm["when"].dt.normalize()):
+            groups.append((g["when"].min(), {"x": day, "label": f"{day:%a %d %b}", "result": None,
+                                             "info": f"{day:%a %d %b} · {rec(g)}"}))
+    else:
+        raise ValueError(f"by must be one of {SNAP_BY}")
+    groups.sort(key=lambda g: g[0])
+    starts = [t for t, _ in groups]
+    vals = []
+    for i, t in enumerate(starts):
+        nxt = starts[i + 1] if i + 1 < len(starts) else None
+        w = sn[(sn["at"] >= t) & ((sn["at"] < nxt) if nxt is not None else True)]
+        vals.append(float(w[col].iloc[-1]) if not w.empty else np.nan)
+    out = pd.DataFrame([g for _, g in groups])
+    out["value"] = vals
+    out["estimated"] = out["value"].isna()
+    out["value"] = out["value"].interpolate(limit_area="inside") if fill == "interpolate" else out["value"].ffill()
+    before = sn[sn["at"] < starts[0]]
+    prev = out["value"].shift(1)
+    prev.iloc[0] = float(before[col].iloc[-1]) if not before.empty else np.nan
+    out["change"] = out["value"] - prev
+    out.attrs["start"] = prev.iloc[0]   # the value before the first one (when the collector saw it)
+    return out

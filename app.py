@@ -11,6 +11,7 @@ import html
 import importlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -268,9 +269,11 @@ def kpis(items, cols=None):
         sub = it.get("sub")
         sub_html = f'<div class="kpi-sub {it.get("sub_tone", "")}">{sub}</div>' if sub else ""
         tip = f' title="{esc(it["help"])}"' if it.get("help") else ""
+        plain = re.sub(r"<[^>]+>", "", str(it["value"]))
+        long_ = len(plain) > 7 and not re.fullmatch(r"[-+0-9.,%:/ ]+", plain) and "kpi-text" not in str(it["value"])
         tiles.append(f'<div class="kpi {it.get("tone", "")}"{tip}><div class="kpi-label">{esc(it["label"])}'
                      + (' <span class="kpi-i">?</span>' if it.get("help") else "")
-                     + f'</div><div class="kpi-value">{it["value"]}</div>{sub_html}</div>')
+                     + f'</div><div class="kpi-value{" kpi-long" if long_ else ""}">{it["value"]}</div>{sub_html}</div>')
     style = f' style="grid-template-columns: repeat({cols}, minmax(0, 1fr));"' if cols else ""
     st.html(f'<div class="kpis"{style}>{"".join(tiles)}</div>')
 
@@ -549,6 +552,14 @@ a {color: var(--volt2);}
 @keyframes pulse {0% {box-shadow: 0 0 0 0 rgba(196,242,58,.6);} 70% {box-shadow: 0 0 0 8px rgba(196,242,58,0);}
                   100% {box-shadow: 0 0 0 0 rgba(196,242,58,0);}}
 .hud img {border-radius: 6px;}
+/* Stats: the section menu stays right under the top bar while you scroll */
+[data-testid="stLayoutWrapper"]:has(> .st-key-section) {
+  position: sticky !important; top: var(--topbar-h, 0px); z-index: 998;
+  margin-left: -2.25rem !important; margin-right: -2.25rem !important; width: calc(100% + 4.5rem) !important;
+  max-width: none !important; padding: 8px 2.25rem !important;
+  background: rgba(10,14,13,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+
 /* Home: the season card and the playoffs card */
 .po-top {display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 10px;}
 .po-title {font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 30px; letter-spacing: .5px;
@@ -630,7 +641,7 @@ div[data-testid="stExpander"] summary p {font-weight: 600;}
             color: var(--text); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .kpi.good .kpi-value {color: #7fe6b5;} .kpi.bad .kpi-value {color: #ff8f88;} .kpi.volt .kpi-value {color: var(--volt2);}
 .kpi.gold .kpi-value {color: var(--gold);}
-.kpi-text {font-size: 22px; line-height: 1.15; display: inline-block;}   /* a name in a number's place */
+.kpi-text {font-size: 22px; line-height: 1.15; display: inline-block; white-space: normal;}   /* a name in a number's place */
 .kpi-sub {font-size: 12.5px; color: var(--muted); margin-top: 1px;}
 .kpi-sub.good {color: var(--good);} .kpi-sub.bad {color: var(--bad);}
 
@@ -912,6 +923,14 @@ hr {border-color: var(--line);}
   .modebar-container {display: none !important;}   /* touch screens show the chart toolbar all the time, over the title */
   .po-title {font-size: 24px;}
   .po-used {padding-top: 0;}
+  .kpis {grid-template-columns: repeat(2, minmax(0, 1fr)) !important;}   /* rows of 5 or 7 tiles: two a row on phones */
+  .kpi-text, .kpi-long {font-size: 19px !important; white-space: normal !important; overflow-wrap: anywhere;}   /* names wrap */
+  [data-testid="stLayoutWrapper"]:has(> .st-key-section) {margin-left: -0.85rem !important; margin-right: -0.85rem !important;
+                                                          width: calc(100% + 1.7rem) !important; padding: 6px 0.85rem !important;}
+  .st-key-section [data-testid="stButtonGroup"] > div {flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none;
+                                                       -webkit-overflow-scrolling: touch;}   /* one row to swipe through */
+  .st-key-section [data-testid="stButtonGroup"] > div::-webkit-scrollbar {display: none;}
+  .st-key-section [data-testid="stButtonGroup"] > div > button {flex: 0 0 auto !important;}
 }
 @media (max-width: 380px) {   /* small phones: the tab labels alone, so "Matches" fits */
   .st-key-navrow [data-testid="stPageLink"] a > span:has([data-testid="stIconMaterial"]) {display: none !important;}
@@ -973,6 +992,21 @@ st.html("""<div class="paint-hook"></div><script>
       meta(d, "theme-color", BG);
       meta(d, "color-scheme", "dark");
     } catch (e) {}   // a page from another site: leave it alone
+  }
+  if (!window.__clubsBarH) {   // the Stats section menu sticks right under the top bar: how tall is the bar?
+    window.__clubsBarH = true;
+    var measure = function () {
+      var bar = document.querySelector(".st-key-topbar");
+      if (!bar) return;
+      var r = bar.getBoundingClientRect(), wrap = bar.parentElement;
+      var h = getComputedStyle(bar).position === "fixed" ? r.bottom
+              : Math.max(r.height, wrap ? wrap.getBoundingClientRect().height : 0);
+      var v = Math.round(h) + "px", root = document.documentElement;
+      if (root.style.getPropertyValue("--topbar-h") !== v) root.style.setProperty("--topbar-h", v);
+    };
+    measure();
+    setInterval(measure, 500);
+    window.addEventListener("resize", measure);
   }
   var w = window, top = window;
   paint(w);
@@ -1917,7 +1951,7 @@ def scouting_block(d, row):
     label, how = going_in(row)
     n_ = s_.get("n", 0)
     kpis([
-        {"label": "Their strength", "value": esc(txt(row.get("strength")) or "-"),
+        {"label": "Their strength", "value": f'<span class="kpi-text">{esc(txt(row.get("strength")) or "-")}</span>',
          "sub": (f'SR {int(row["opp_sr"])} vs your {int(row["our_sr"])} ({int(diff):+d})' if not isna(diff)
                  else "EA sent no skill rating"),
          "tone": {"Much stronger": "bad", "Stronger": "gold", "Weaker": "good", "Much weaker": "good"}.get(row.get("strength"), "")},
@@ -2348,20 +2382,16 @@ def stats_club(d):
             chart(fig)
     snaps = season_snaps(d, db.club_snapshots_df(CLUB_ID))
     if len(snaps) >= 2 and snaps["skill_rating"].notna().sum() >= 2:
+        with st.container(key="snap_by_pick"):
+            by = st.segmented_control("Show by", ["Match", "Session", "Day", "Time"], default="Match", key="snap_by",
+                                      label_visibility="collapsed") or "Match"
         a, b = st.columns(2, gap="medium")
         with a:
-            fig = go.Figure(go.Scatter(x=snaps["at"], y=snaps["skill_rating"], mode="lines+markers", line=dict(color=VOLT, width=3),
-                                       hovertemplate="%{x|%d %b %H:%M}<br>Skill rating <b>%{y}</b><extra></extra>"))
-            fig.update_layout(title="Skill rating over time")
-            chart(fig)
+            snap_chart(analytics.snap_by(snaps, m, "skill_rating", by.lower(), CFG.get("session_gap_minutes", 45)),
+                       by.lower(), "skill_rating")
         with b:
-            div = pd.to_numeric(snaps["division"], errors="coerce")
-            if div.notna().sum() >= 2:
-                fig = go.Figure(go.Scatter(x=snaps["at"], y=div, mode="lines+markers", line=dict(color=BLUE, width=3, shape="hv"),
-                                           text=[labels.division(x) for x in snaps["division"]],
-                                           hovertemplate="%{x|%d %b}<br>%{text}<extra></extra>"))
-                fig.update_layout(title="Division over time", yaxis=dict(autorange="reversed", dtick=1))
-                chart(fig)
+            snap_chart(analytics.snap_by(snaps, m, "division", by.lower(), CFG.get("session_gap_minutes", 45), fill="ffill"),
+                       by.lower(), "division")
     elif len(snaps):
         st.caption("Skill rating and division charts appear once the collector has seen them change.")
     section("By match type")
@@ -2374,6 +2404,46 @@ def stats_club(d):
         "gf": st.column_config.NumberColumn("Scored / match", format="%.2f"),
         "ga": st.column_config.NumberColumn("Conceded / match", format="%.2f"),
         "ppg": st.column_config.NumberColumn("Points / match", format="%.2f")})
+
+
+SNAP_TITLES = {"match": "{} over matches", "session": "{} by session", "day": "{} by day", "time": "{} over time"}
+
+
+def snap_chart(pts, by, col):
+    """Skill rating or division after each match, session or day (or at every check)."""
+    if pts.empty or pts["value"].notna().sum() == 0:
+        st.caption("Nothing to show this way yet.")
+        return
+    pts = pts.dropna(subset=["value"])
+    sr = col == "skill_rating"
+    name = "Skill rating" if sr else "Division"
+    x = pts["label"] if by in ("session", "day") else pts["x"]
+    if sr:
+        chg = ["" if isna(c) else f" ({c:+.0f})" for c in pts["change"]]
+        shown = [f"<b>{v:.0f}</b>{c}" for v, c in zip(pts["value"], chg)]
+    else:
+        shown = [f"<b>{esc(labels.division(str(int(v))))}</b>" + ("" if isna(c) or c == 0 else
+                 " (up)" if c < 0 else " (down)") for v, c in zip(pts["value"], pts["change"])]
+    note = ["<br><i>estimated: not seen by the collector</i>" if e else "" for e in pts["estimated"]]
+    colors = ([RESULT_COLORS.get(r, VOLT) for r in pts["result"]] if by == "match" else (VOLT if sr else BLUE))
+    fig = go.Figure(go.Scatter(
+        x=x, y=pts["value"], mode="lines+markers" if len(pts) <= 80 else "lines",
+        line=dict(color=VOLT if sr else BLUE, width=3, shape="linear" if sr else "hv"),
+        marker=dict(size=9, color=colors, symbol=["circle-open" if e else "circle" for e in pts["estimated"]],
+                    line=dict(width=1.5, color=colors if isinstance(colors, str) else colors)),
+        customdata=np.stack([pts["info"].astype(str), shown, note], axis=1),
+        hovertemplate=f"%{{customdata[0]}}<br>{name} %{{customdata[1]}}%{{customdata[2]}}<extra></extra>"))
+    lay = dict(title=SNAP_TITLES[by].format(name), showlegend=False)
+    if by == "match":
+        lay["xaxis"] = dict(title="Club match")
+    elif by in ("session", "day"):
+        lay["xaxis"] = dict(type="category")
+    if not sr:
+        codes = sorted({int(v) for v in pts["value"]})
+        lay["yaxis"] = dict(autorange="reversed", tickvals=codes,
+                            ticktext=[labels.division(str(c)).replace("Division ", "Div ") for c in codes])
+    fig.update_layout(**lay)
+    chart(fig)
 
 
 def stats_teammates(d):

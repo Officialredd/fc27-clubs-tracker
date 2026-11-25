@@ -59,3 +59,25 @@ def test_session_skill_rating():
                                                 "2026-11-25 01:15"]), "skill_rating": [1500, 1520, 1550, 1540]})
     out = analytics.session_sr(sess, snaps)
     assert list(out["change"]) == [50.0, -10.0] and list(out["sr_before"]) == [1500.0, 1550.0]
+
+
+def test_skill_rating_by_match_session_day_and_time():
+    t = pd.Timestamp("2026-11-23 19:00")
+    mins = pd.Timedelta(minutes=1)
+    m = pd.DataFrame({"game_no": [1, 2, 3, 4], "match_id": list("abcd"), "opp_name": ["A", "B", "C", "D"],
+                      "when": [t, t + 15 * mins, t + 30 * mins, t + pd.Timedelta(days=1)],
+                      "result": ["W", "L", "W", "W"], "goals_for": [2, 0, 3, 1], "goals_against": [1, 1, 0, 0]})
+    m["ts"] = [int(w.timestamp()) for w in m["when"]]
+    snaps = pd.DataFrame({"at": [t - 60 * mins, t + 5 * mins, t + 33 * mins, t + pd.Timedelta(days=1, minutes=4)],
+                          "skill_rating": [1500, 1512, 1520, 1531], "division": ["5", "5", "4", "4"]})
+    by_match = analytics.snap_by(snaps, m, "skill_rating", "match")
+    # after match 2 the collector saw nothing before match 3 began: filled in between 1512 and 1520, marked estimated
+    assert list(by_match["value"]) == [1512, 1516, 1520, 1531] and list(by_match["estimated"]) == [False, True, False, False]
+    assert by_match["change"].iloc[0] == 12 and by_match.attrs["start"] == 1500
+    by_session = analytics.snap_by(snaps, m, "skill_rating", "session", gap_minutes=45)
+    assert list(by_session["value"]) == [1520, 1531] and list(by_session["change"]) == [20, 11]
+    by_day = analytics.snap_by(snaps, m, "skill_rating", "day")
+    assert list(by_day["value"]) == [1520, 1531] and list(by_day["label"]) == ["Mon 23 Nov", "Tue 24 Nov"]
+    assert len(analytics.snap_by(snaps, m, "skill_rating", "time")) == 4
+    div = analytics.snap_by(snaps, m, "division", "match", fill="ffill")
+    assert list(div["value"]) == [5, 5, 4, 4]   # carried over, not averaged
