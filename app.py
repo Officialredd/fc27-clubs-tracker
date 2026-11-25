@@ -830,11 +830,33 @@ hr {border-color: var(--line);}
   border: 1px solid rgba(196,242,58,0.45) !important; color: var(--volt2) !important;}
 [data-testid="stMultiSelectTagsContainer"] > span > span * {color: var(--volt2) !important; fill: var(--volt2) !important;}
 
+/* ---- narrower screens (tablets, smaller windows): the bar wraps onto more lines than the page leaves room for when
+   it's fixed, so there it sticks to the top instead (its wrapper keeps its place, so nothing hides under it) */
+@media (max-width: 1480px) {   /* up to the page's full width: wider, the page is centred and the bar stays fixed */
+  .block-container {padding-top: 0 !important;}
+  .st-key-topbar {position: static !important; width: 100% !important; max-width: 100% !important; padding: 10px 0 !important;
+                  background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: none;}
+  [data-testid="stLayoutWrapper"]:has(> .st-key-topbar) {
+    position: sticky !important; top: 0; z-index: 999; margin: -1rem -2.25rem 10px -2.25rem !important;
+    width: calc(100% + 4.5rem) !important; max-width: none !important; padding: 0 2.25rem !important;
+    background: rgba(10,14,13,0.9); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+}
+
 /* ---- phones */
 @media (max-width: 700px) {
-  .block-container {padding: 10px 0.85rem 3rem 0.85rem !important;}
-  .st-key-topbar {position: static !important; width: 100% !important; max-width: 100% !important; padding: 4px 0 10px 0;
-                  background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; margin-bottom: 6px !important;}
+  .block-container {padding: 0 0.85rem 3rem 0.85rem !important;}
+  .st-key-topbar {position: static !important; width: 100% !important; max-width: 100% !important; padding: 2px 0 9px 0;
+                  background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: none;
+                  margin: 0 !important;}
+  /* the bar stays at the top while you scroll: its wrapper sticks (the bar's own box is only as tall as the bar) */
+  [data-testid="stLayoutWrapper"]:has(> .st-key-topbar) {
+    position: sticky !important; top: 0; z-index: 999; margin: -1rem -0.85rem 6px -0.85rem !important;
+    width: calc(100% + 1.7rem) !important; max-width: none !important; padding: 10px 0.85rem 0 0.85rem !important;
+    background: rgba(10,14,13,0.94); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
   .brand {border-right: none; padding-right: 4px; height: 32px;}
   .brand-name {font-size: 19px;}
   .st-key-topbar [data-testid="stPageLink"] a {padding: 2px 8px !important;}
@@ -868,8 +890,8 @@ hr {border-color: var(--line);}
   .cmp-row {grid-template-columns: 38px 1fr 84px 1fr 38px; gap: 5px; font-size: 12px;}
   .cmp-label {font-size: 9.5px; letter-spacing: .5px;}
   .cmp-l, .cmp-r {font-size: 16px;}
-  .info-tip {position: fixed; left: 10px !important; right: 10px !important; top: 64px !important; bottom: auto !important;
-             width: auto; max-height: 75vh; overflow-y: auto;}
+  .info-tip {position: fixed; left: 10px !important; right: 10px !important; top: 118px !important; bottom: auto !important;
+             width: auto; max-height: calc(100vh - 140px); overflow-y: auto;}   /* below the top bar */
   .section-title {font-size: 22px;}
   .modebar-container {display: none !important;}   /* touch screens show the chart toolbar all the time, over the title */
 }
