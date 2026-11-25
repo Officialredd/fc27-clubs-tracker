@@ -30,7 +30,10 @@ Open the dashboard with **start_app.bat** (it runs at http://localhost:8527, nex
 
 ## Pages
 
-- **Team** (the start page): the club (division, record, skill rating, form), the team's key numbers, the last
+- **Home** (the start page): the season so far and how long it has left, the playoffs card during the playoff
+  week (matches used out of your division's limit, playoff record, every playoff match), the last match and
+  session, recent matches and top performers
+- **Team**: the club (division, record, skill rating, form), the team's key numbers, the last
   match with every player's grade, the latest session, the squad's overall grades and form, top performers
 - **You**: your key numbers, the last match from your side and your charts
 - **Matches**: every match; click one for the full report (team stats, both line-ups, opponent scouting, your

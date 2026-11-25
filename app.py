@@ -46,7 +46,7 @@ if ONLINE:   # its own database, rebuilt from online-data
 import clubs as _pkg  # noqa: E402
 
 # clubs/*.py in import order (a module comes after the ones it imports)
-_RELOAD_ORDER = ["config", "tz", "seasons", "labels", "api", "parse", "db", "grades", "score", "analytics", "scout", "sync",
+_RELOAD_ORDER = ["config", "tz", "seasons", "playoffs", "labels", "api", "parse", "db", "grades", "score", "analytics", "scout", "sync",
                  "collector_ctl", "cloud", "updater"]
 
 
@@ -84,7 +84,7 @@ def _reload_changed_code() -> bool:
 
 _CODE_RELOADED = _reload_changed_code()
 
-from clubs import analytics, api, cloud, collector_ctl, config, db, grades, labels, parse, score, scout, seasons, sync, tz, updater  # noqa: E402,E501
+from clubs import analytics, api, cloud, collector_ctl, config, db, grades, labels, parse, playoffs, score, scout, seasons, sync, tz, updater  # noqa: E402,E501
 
 if _CODE_RELOADED:   # numbers worked out by the old code
     st.cache_data.clear()
@@ -549,6 +549,21 @@ a {color: var(--volt2);}
 @keyframes pulse {0% {box-shadow: 0 0 0 0 rgba(196,242,58,.6);} 70% {box-shadow: 0 0 0 8px rgba(196,242,58,0);}
                   100% {box-shadow: 0 0 0 0 rgba(196,242,58,0);}}
 .hud img {border-radius: 6px;}
+/* Home: the season card and the playoffs card */
+.po-top {display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 10px;}
+.po-title {font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 30px; letter-spacing: .5px;
+           text-transform: uppercase; color: var(--text); line-height: 1.05;}
+.po-used {font-weight: 600; color: var(--text); font-size: 14px; padding-top: 4px;}
+.po-bar {height: 8px; border-radius: 6px; background: rgba(255,255,255,0.07); overflow: hidden; margin: 2px 0 12px 0;}
+.po-bar > div {height: 100%; border-radius: 6px; background: linear-gradient(90deg, #a9d92b, var(--volt));}
+.po-soon {margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(196,242,58,0.35);
+          background: rgba(196,242,58,0.07); color: var(--text); font-size: 14px;}
+.season-id {display: flex; align-items: center; gap: 12px;}
+.st-key-playoffs_card {border-color: rgba(242,201,76,0.55) !important;
+                       background: linear-gradient(135deg, rgba(242,201,76,0.10), rgba(242,201,76,0.02) 60%) !important;}
+.st-key-playoffs_card .eyebrow {color: var(--gold);}
+.st-key-playoffs_card .po-bar > div {background: linear-gradient(90deg, #d9a92e, var(--gold));}
+
 /* the menu with the other pages: phones only (see below) */
 .st-key-topbar > [data-testid="stLayoutWrapper"]:has(> [class*="st-key-navmenu"]) {display: none;}
 [class*="st-key-navmenu"] [data-testid="stPopoverButton"] {height: 36px; padding: 0 12px;}
@@ -894,6 +909,8 @@ hr {border-color: var(--line);}
              width: auto; max-height: calc(100vh - 140px); overflow-y: auto;}   /* below the top bar */
   .section-title {font-size: 22px;}
   .modebar-container {display: none !important;}   /* touch screens show the chart toolbar all the time, over the title */
+  .po-title {font-size: 24px;}
+  .po-used {padding-top: 0;}
 }
 @media (max-width: 380px) {   /* small phones: the tab labels alone, so "Matches" fits */
   .st-key-navrow [data-testid="stPageLink"] a > span:has([data-testid="stIconMaterial"]) {display: none !important;}
@@ -1431,8 +1448,160 @@ def team_session_card(d):
               {"label": "Points", "value": fmt(s_["points"]), "sub": f'{s_["ppg"]:.2f} a match',
                "tone": "good" if s_["ppg"] >= 1.5 else "bad" if s_["ppg"] < 1 else ""},
               {"label": "Team grade", "value": grades.letter(tg) or "-", "sub": f"{fmt(tg)} average"}], cols=3)
+        ssr = analytics.session_sr(sess.head(2), db.club_snapshots_df(CLUB_ID)) if CLUB_ID else pd.DataFrame()
+        ssr = ssr[ssr["start"] == s_["start"]] if not ssr.empty else ssr
+        if not ssr.empty:
+            r = ssr.iloc[0]
+            tone = "var(--good)" if r["change"] > 0 else "var(--bad)" if r["change"] < 0 else "var(--muted)"
+            best = (f'Skill rating <b style="color:{tone}">{r["change"]:+.0f}</b> ({fmt(r["sr_before"])} to '
+                    f'{fmt(r["sr_after"])})' + (f'<br>{best}' if best else ""))
         if best:
             st.html(f'<div class="mini" style="margin-top:6px">{best}</div>')
+
+
+# ================================================================= PAGE: HOME
+def left_text(td) -> str:
+    h = td.total_seconds() / 3600
+    if h < 1:
+        return "less than an hour"
+    if h < 36:
+        return plural(int(round(h)), "hour")
+    return plural(int(td.days + (1 if td.seconds >= 43200 else 0)), "day")
+
+
+def playoffs_card(d, ps, now):
+    """Home, during the playoff week (and a few days after): matches used, record and every playoff match."""
+    div = labels.division(ps["division"]) if ps["division"] else None
+    head = f"Season {ps['season']} playoffs" if ps["season"] else "Playoffs"
+    span_ = f'{ps["start"]:%a %d %b, %H:%M} - {ps["end"]:%a %d %b, %H:%M}'
+    title = (f"Open: {left_text(ps['end'] - now)} left" if ps["open"] else f"Closed {ago(ps['end'])}")
+    limit = ps["limit"]
+    used = (f'{ps["played"]} of {limit} playoff matches played' + (f' · {ps["left"]} left' if ps["open"] else "")
+            if limit else plural(ps["played"], "playoff match", "playoff matches") + " played")
+    bar = (f'<div class="po-bar"><div style="width:{min(100, 100 * ps["played"] / limit):.0f}%"></div></div>'
+           if limit else "")
+    n = ps["w"] + ps["d"] + ps["l"]
+    with st.container(border=True, key="playoffs_card"):
+        st.html(f'<div class="po-top"><div><div class="eyebrow">🏆 {esc(head)}</div>'
+                f'<div class="po-title">{esc(title)}</div><div class="mini">{esc(span_)}'
+                + (f' · {esc(div)}: up to {limit} playoff matches' if div and limit else "") + '</div></div>'
+                f'<div class="po-used">{esc(used)}</div></div>{bar}')
+        if n:
+            kpis([{"label": "Playoff record", "value": f'{ps["w"]}-{ps["d"]}-{ps["l"]}', "sub": f'{100 * ps["w"] / n:.0f}% won',
+                   "tone": "good" if ps["w"] / n >= 0.5 else ""},
+                  {"label": "Points", "value": fmt(ps["points"]), "sub": f'{ps["points"] / n:.2f} a match'},
+                  {"label": "Goals", "value": f'{ps["gf"]}-{ps["ga"]}', "sub": f'{(ps["gf"] - ps["ga"]):+d} difference'},
+                  {"label": "Team grade", "value": grades.letter(ps["matches"]["team_grade_score"].mean()) or "-",
+                   "sub": f'{fmt(ps["matches"]["team_grade_score"].mean())} average'}
+                  if "team_grade_score" in ps["matches"] else {"label": "League matches", "value": fmt(ps["league_during"])}])
+            pm = ps["matches"]
+            table = pd.DataFrame({
+                "When": pm["when"], "Opponent": pm["opp_name"],
+                "Score": pm["goals_for"].astype(int).astype(str) + " - " + pm["goals_against"].astype(int).astype(str),
+                "Result": pm["result"],
+                "Opp. SR": [sr_diff_text(v) for v in pm.get("sr_diff", pd.Series(np.nan, index=pm.index))],
+                "Team grade": [grade_text(v) for v in pm.get("team_grade_score", pd.Series(np.nan, index=pm.index))]})
+            ev = st.dataframe(table, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+                              key="po_table", height=min(380, 38 + 35 * len(table)),
+                              column_config={"When": st.column_config.DatetimeColumn(format="ddd D MMM, HH:mm")})
+            sel = ev.selection.rows if ev and ev.selection else []
+            if sel:
+                mid = str(pm.iloc[sel[0]]["match_id"])
+                st.session_state.pop("po_table", None)   # coming back shouldn't jump to the report again
+                st.switch_page(PAGES["matches"], query_params={"match": mid})
+        elif ps["open"]:
+            st.html('<div class="mini">No playoff matches yet. Every win counts: the final placing decides the fans '
+                    'the club gets.</div>')
+        st.caption("Your final placing (as a share of all clubs) decides the fans the club gets. League matches still "
+                   "count during the week, but promotions stop until the next season, which starts in Division 5.")
+
+
+def season_card(d, now):
+    """Home: the season so far and how long it has left (with the playoffs coming up)."""
+    m = d.matches
+    snap = db.latest_club_snapshot(CLUB_ID)
+    club = db.club(CLUB_ID)
+    no = int(m["season"].max()) if "season" in m and not m.empty else None
+    ends = next((t for _, t in seasons.calendar_starts() if t > now), None)
+    nxt = playoffs.next_window(now, m)
+    snaps = db.club_snapshots_df(CLUB_ID)
+    lo, _ = seasons.span(d.season_breaks, d.season_first, no) if no else (None, None)
+    sn = snaps.dropna(subset=["skill_rating"]) if not snaps.empty else snaps
+    if lo is not None and not sn.empty:
+        sn = sn[sn["at"] >= lo]
+    cur = m[m["season"] == no] if no else m
+    rec = analytics.record(cur)
+    sw, sd, sl = snap.get("season_wins"), snap.get("season_ties"), snap.get("season_losses")
+    right = f"Ends {ends:%a %d %b} · in {left_text(ends - now)}" if ends is not None else ""
+    with st.container(border=True, key="season_card"):
+        st.html(f'<div class="po-top"><div class="season-id">{crest(club.get("crest_url"), 46)}<div>'
+                f'<div class="eyebrow">{esc(f"Season {no}" if no else "This season")} · '
+                f'{esc(labels.division(snap.get("division")))}</div>'
+                f'<div class="po-title">{esc(club.get("name") or CFG.get("club_name") or "Your club")}</div></div></div>'
+                f'<div class="po-used">{esc(right)}</div></div>')
+        chg = (sn["skill_rating"].iloc[-1] - sn["skill_rating"].iloc[0]) if len(sn) >= 2 else None
+        kpis([{"label": "Season record", "value": f"{sw}-{sd}-{sl}" if sw is not None else f"{rec['w']}-{rec['d']}-{rec['l']}",
+               "sub": f"{plural(int(sw + sd + sl), 'league match', 'league matches')}" if sw is not None
+               else plural(rec["n"], "match", "matches")},
+              {"label": "League points", "value": fmt(snap.get("season_points")) if snap.get("season_points") is not None
+               else fmt(3 * rec["w"] + rec["d"]), "sub": "EA's count"},
+              {"label": "Skill rating", "value": fmt(snap.get("skill_rating")),
+               "sub": f"{chg:+.0f} since {sn['at'].iloc[0]:%d %b}" if chg is not None else "",
+               "sub_tone": "good" if (chg or 0) > 0 else "bad" if (chg or 0) < 0 else ""},
+              {"label": "Form", "value": form_dots(m["result"], n=5), "sub": "last 5 matches"}])
+        if nxt is not None and nxt[0] - now <= playoffs.SOON:
+            div = str(snap.get("division")) if snap.get("division") is not None else None
+            lim = playoffs.LIMITS.get(div) if div else None
+            when_ = "today" if nxt[0].date() == now.date() else "tomorrow" if (nxt[0].date() - now.date()).days == 1 \
+                else f"in {left_text(nxt[0] - now)}"
+            st.html(f'<div class="po-soon">🏆 The playoffs open <b>{nxt[0]:%a %d %b, %H:%M}</b> ({esc(when_)}) and last '
+                    f'a week' + (f': up to <b>{lim}</b> playoff matches in {esc(labels.division(div))}' if lim else "")
+                    + '. Promotions stop then; league matches still count.</div>')
+
+
+def recent_matches(d, n=6):
+    m = d.matches.sort_values("ts", ascending=False).head(n)
+    table = pd.DataFrame({
+        "When": m["when"], "Type": m["match_type"].map(labels.MATCH_TYPES), "Opponent": m["opp_name"],
+        "Score": m["goals_for"].astype(int).astype(str) + " - " + m["goals_against"].astype(int).astype(str),
+        "Result": m["result"],
+        "Opp. SR": [sr_diff_text(v) for v in m.get("sr_diff", pd.Series(np.nan, index=m.index))],
+        "Team grade": [grade_text(v) for v in m.get("team_grade_score", pd.Series(np.nan, index=m.index))]})
+    ev = st.dataframe(table, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+                      key="home_recent", column_config={"When": st.column_config.DatetimeColumn(format="ddd D MMM, HH:mm")})
+    sel = ev.selection.rows if ev and ev.selection else []
+    if sel:
+        mid = str(m.iloc[sel[0]]["match_id"])
+        st.session_state.pop("home_recent", None)   # coming back shouldn't jump to the report again
+        st.switch_page(PAGES["matches"], query_params={"match": mid})
+
+
+def page_start():
+    d = data()
+    m = d.matches
+    if m.empty:
+        hero(d)
+        st.html("<div style='height:14px'></div>")
+        empty_state("⚽", "No matches yet",
+                    "Play a league or playoff match with your club: it shows up here a minute or two after the final "
+                    "whistle. EA's last 10 matches of each type are fetched when the collector starts.")
+        collector_card()
+        return
+    now = pd.Timestamp(os.environ.get("CLUBS_NOW") or dt.datetime.now())   # CLUBS_NOW: try another moment (tests)
+    ps = playoffs.status(m, db.club_snapshots_df(CLUB_ID), now)
+    if ps:
+        playoffs_card(d, ps, now)
+    season_card(d, now)
+    a, b = st.columns([1.35, 1], gap="medium")
+    with a:
+        match_card(d, m.iloc[-1]["match_id"], team=True)
+    with b:
+        team_session_card(d)
+        collector_card(compact=True)
+    section("Recent matches", "The latest first: tap one for its report.")
+    recent_matches(d)
+    section("Top performers", "The last 10 matches.")
+    top_performers(d)
 
 
 def page_team():
@@ -3525,6 +3694,15 @@ the seasons and their players, and once there's more than one, a Season picker a
 section for one season. On phones, the
 pages that don't fit in the top bar are under *More*.
 
+**Home.** What's happening now: the season so far and how long it has left, the last match and session, recent
+matches and the top performers. During the playoffs (and for a few days after) a playoffs card sits on top: how
+many of your playoff matches you've used, your playoff record and every playoff match.
+
+**Playoffs.** The last week of each season, from Thursday to Thursday. Promotions stop when they open, and a club
+can play only so many playoff matches, set by its division then: 10 in Divisions 5 and 4, 15 in Divisions 3 and 2,
+20 in Division 1 and 25 in the Elite Division. League matches still count during the week. The final placing (a
+share of all clubs) decides the fans the club gets, and the next season starts in Division 5.
+
 **Search.** Look up any club by name (or club ID), or pick one you've played: you get their skill rating and
 record, their last 10 games and players, how they compare with you and your matches against them. It asks EA right
 away, so it's handy for the club you're about to play (their games are kept for scouting later, too).
@@ -3642,7 +3820,8 @@ def welcome_page():
 
 # ================================================================= ROUTING + TOP BAR
 PAGES = {
-    "team": st.Page(page_team, title="Team", icon=":material/shield:", url_path="team", default=True),
+    "home": st.Page(page_start, title="Home", icon=":material/home:", url_path="home", default=True),
+    "team": st.Page(page_team, title="Team", icon=":material/shield:", url_path="team"),
     "you": st.Page(page_home, title="You", icon=":material/person:", url_path="you"),
     "matches": st.Page(page_matches, title="Matches", icon=":material/scoreboard:", url_path="matches"),
     "stats": st.Page(page_stats, title="Stats", icon=":material/insights:", url_path="stats"),
@@ -3662,7 +3841,7 @@ BRAND = ('<div class="brand"><svg width="30" height="32" viewBox="0 0 34 38">'
          '<div class="brand-name">CLUBS <span>TRACKER</span></div></div>')
 
 
-NAV_MAIN = ("team", "you", "matches", "stats")   # always in the top bar; on phones the other pages are in a menu
+NAV_MAIN = ("home", "you", "matches", "stats")   # always in the top bar; on phones the other pages are in a menu
 
 
 def hud_html(stt, snap, club):
