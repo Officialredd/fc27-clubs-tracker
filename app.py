@@ -916,8 +916,44 @@ hr {border-color: var(--line);}
   .st-key-navrow [data-testid="stPageLink"] a > span:has([data-testid="stIconMaterial"]) {display: none !important;}
   .st-key-topbar .st-key-navrow [data-testid="stPageLink"] a {gap: 0 !important;}
 }
+html, body {background-color: #0a0e0d;}
+[data-testid="stElementContainer"]:has(.paint-hook) {display: none !important;}
 </style>
 """, unsafe_allow_html=True)
+
+# Phones colour the bars around the page (the clock and battery at the top, the address bar at the bottom) from
+# the page itself, and the page Streamlit's hosting wraps around the app asks for white. The app is served from
+# the same site, so it can paint that page in the app's colours too (on the PC there's no wrapper: nothing changes).
+st.html("""<div class="paint-hook"></div><script>
+(function () {
+  var BG = "#0a0e0d";
+  function meta(d, name, content) {
+    var ms = d.querySelectorAll('meta[name="' + name + '"]');
+    if (!ms.length) {
+      var m = d.createElement("meta");
+      m.setAttribute("name", name);
+      d.head.appendChild(m);
+      ms = [m];
+    }
+    for (var i = 0; i < ms.length; i++) ms[i].setAttribute("content", content);
+  }
+  function paint(w) {
+    try {
+      var d = w.document;
+      d.documentElement.style.backgroundColor = BG;
+      if (d.body) d.body.style.backgroundColor = BG;
+      meta(d, "theme-color", BG);
+      meta(d, "color-scheme", "dark");
+    } catch (e) {}   // a page from another site: leave it alone
+  }
+  var w = window;
+  paint(w);
+  for (var k = 0; k < 3 && w.parent && w.parent !== w; k++) {
+    w = w.parent;
+    paint(w);
+  }
+})();
+</script>""", unsafe_allow_javascript=True)
 
 
 # ================================================================= DATA FOR THIS RUN
