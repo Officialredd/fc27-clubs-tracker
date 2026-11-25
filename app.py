@@ -5,6 +5,7 @@ per job: Team (the start page: the club's form, last match and squad grades), Yo
 (every match with its full report and opponent scouting), Stats (all charts, by topic), Squad (every player of the
 club), Settings and Help.
 The data comes from collector.py, which saves every match of your club from EA's Clubs API."""
+import copy
 import datetime as dt
 import html
 import importlib
@@ -45,7 +46,7 @@ if ONLINE:   # its own database, rebuilt from online-data
 import clubs as _pkg  # noqa: E402
 
 # clubs/*.py in import order (a module comes after the ones it imports)
-_RELOAD_ORDER = ["config", "tz", "labels", "api", "parse", "db", "grades", "score", "analytics", "scout", "sync",
+_RELOAD_ORDER = ["config", "tz", "seasons", "labels", "api", "parse", "db", "grades", "score", "analytics", "scout", "sync",
                  "collector_ctl", "cloud", "updater"]
 
 
@@ -83,7 +84,7 @@ def _reload_changed_code() -> bool:
 
 _CODE_RELOADED = _reload_changed_code()
 
-from clubs import analytics, api, cloud, collector_ctl, config, db, grades, labels, parse, score, scout, sync, tz, updater  # noqa: E402,E501
+from clubs import analytics, api, cloud, collector_ctl, config, db, grades, labels, parse, score, scout, seasons, sync, tz, updater  # noqa: E402,E501
 
 if _CODE_RELOADED:   # numbers worked out by the old code
     st.cache_data.clear()
@@ -548,6 +549,14 @@ a {color: var(--volt2);}
 @keyframes pulse {0% {box-shadow: 0 0 0 0 rgba(196,242,58,.6);} 70% {box-shadow: 0 0 0 8px rgba(196,242,58,0);}
                   100% {box-shadow: 0 0 0 0 rgba(196,242,58,0);}}
 .hud img {border-radius: 6px;}
+/* the menu with the other pages: phones only (see below) */
+.st-key-topbar > [data-testid="stLayoutWrapper"]:has(> [class*="st-key-navmenu"]) {display: none;}
+[class*="st-key-navmenu"] [data-testid="stPopoverButton"] {height: 36px; padding: 0 12px;}
+.st-key-navmenu_on [data-testid="stPopoverButton"] {background: rgba(196,242,58,0.13) !important; border-color: rgba(196,242,58,0.45) !important;}
+.st-key-navmenu_on [data-testid="stPopoverButton"] p, .st-key-navmenu_on [data-testid="stPopoverButton"] span {color: var(--volt2) !important;}
+[data-testid="stPopoverBody"] [data-testid="stPageLink"] a {padding: 9px 12px !important; border-radius: 8px;}
+[data-testid="stPopoverBody"] [data-testid="stPageLink"] p {font-weight: 600 !important; font-size: 15px;}
+.hud-menu {flex-wrap: wrap; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line);}
 
 /* ---- page heading */
 .page-head {margin: 0.2rem 0 0.4rem 0;}
@@ -830,6 +839,21 @@ hr {border-color: var(--line);}
   .brand-name {font-size: 19px;}
   .st-key-topbar [data-testid="stPageLink"] a {padding: 2px 8px !important;}
   .st-key-topbar [data-testid="stPageLink"] p {font-size: 13.5px !important;}
+  /* phones: brand and menu on one line, the main tabs below as one bar, the status boxes in the menu */
+  .st-key-topbar {row-gap: 8px !important;}
+  .st-key-topbar > [data-testid="stLayoutWrapper"]:has(> .st-key-hudbar) {display: none !important;}
+  .st-key-topbar > [data-testid="stLayoutWrapper"]:has(> [class*="st-key-navmenu"]) {display: flex !important; order: 2;}
+  .st-key-topbar > [data-testid="stLayoutWrapper"]:has(> .st-key-navrow) {order: 3; flex: 1 1 100% !important;
+                                                                          width: 100% !important; max-width: 100% !important;}
+  .st-key-navrow {width: 100% !important; flex-wrap: nowrap !important; gap: 3px !important; padding: 3px !important;
+                  background: var(--panel2); border: 1px solid var(--line); border-radius: 11px;}
+  .st-key-navrow > [data-testid="stLayoutWrapper"]:has([class*="_more_"]) {display: none !important;}
+  .st-key-navrow > [data-testid="stLayoutWrapper"] {flex: 1 1 0 !important; min-width: 0 !important; width: auto !important;}
+  .st-key-navrow [class*="st-key-nav"], .st-key-navrow [data-testid="stElementContainer"],
+  .st-key-navrow [data-testid="stPageLink"], .st-key-topbar .st-key-navrow [data-testid="stPageLink"] a {width: 100% !important;}
+  .st-key-topbar .st-key-navrow [data-testid="stElementContainer"] {margin: 0 !important;}
+  .st-key-topbar .st-key-navrow [data-testid="stPageLink"] a {justify-content: center; padding: 2px !important;}
+  .st-key-topbar .st-key-navrow [data-testid="stPageLink"] p {font-size: 14px !important;}
   .hud-box {height: 30px; padding: 3px 9px;}
   .hero {grid-template-columns: 1fr !important; gap: 12px; padding: 14px;}
   .hero img.crest, .hero .crest-none {width: 64px !important; height: 64px !important;}
@@ -847,6 +871,11 @@ hr {border-color: var(--line);}
   .info-tip {position: fixed; left: 10px !important; right: 10px !important; top: 64px !important; bottom: auto !important;
              width: auto; max-height: 75vh; overflow-y: auto;}
   .section-title {font-size: 22px;}
+  .modebar-container {display: none !important;}   /* touch screens show the chart toolbar all the time, over the title */
+}
+@media (max-width: 380px) {   /* small phones: the tab labels alone, so "Matches" fits */
+  .st-key-navrow [data-testid="stPageLink"] a > span:has([data-testid="stIconMaterial"]) {display: none !important;}
+  .st-key-topbar .st-key-navrow [data-testid="stPageLink"] a {gap: 0 !important;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -857,6 +886,10 @@ hr {border-color: var(--line);}
 def load_data(sig, club_id, me_id, me_name, version=None):
     d = analytics.load(club_id, me_id, me_name)
     d.scouting = scout.Scouting(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+    d.season_starts, d.season_range = [], None   # EA's league seasons (see clubs/seasons.py)
+    if not d.matches.empty:
+        d.season_starts = seasons.starts(db.club_snapshots_df(club_id), d.matches)
+        d.matches["season"] = seasons.number(d.matches, d.season_starts)
     if d.ours.empty:
         return d
     # scouting: how strong each opponent was (their SR minus ours) and how they had been playing
@@ -2001,7 +2034,7 @@ def stats_club(d):
             fig.update_layout(title="Win rate by player difference (us minus them)", xaxis_title="Humans: us minus them",
                               yaxis=dict(ticksuffix="%", range=[0, 110]))
             chart(fig)
-    snaps = db.club_snapshots_df(CLUB_ID)
+    snaps = season_snaps(d, db.club_snapshots_df(CLUB_ID))
     if len(snaps) >= 2 and snaps["skill_rating"].notna().sum() >= 2:
         a, b = st.columns(2, gap="medium")
         with a:
@@ -2528,8 +2561,123 @@ def stats_compare(d):
         st.dataframe(table, width="stretch")
 
 
+# ---------------------------------------------------------------- seasons
+def season_view(d, no):
+    """The same numbers for one season only (its matches numbered 1, 2, 3... within the season)."""
+    v = copy.copy(d)
+    v.matches = d.matches[d.matches["season"] == no].copy()
+    ids = set(v.matches["match_id"])
+    renum = dict(zip(v.matches["game_no"], range(1, len(v.matches) + 1)))
+    v.matches["game_no"] = v.matches["game_no"].map(renum)
+    for name in ("players", "ours", "me"):
+        df = getattr(d, name)
+        if not df.empty:
+            df = df[df["match_id"].isin(ids)].copy()
+            if "game_no" in df:
+                df["game_no"] = df["game_no"].map(renum)
+            setattr(v, name, df)
+    starts = d.season_starts
+    v.season_range = (starts[no - 2] if no >= 2 else None, starts[no - 1] if no - 1 < len(starts) else None)
+    return v
+
+
+def season_snaps(d, snaps):
+    """Club snapshots within the picked season (all of them when no season is picked)."""
+    rng = getattr(d, "season_range", None)
+    if not rng or snaps.empty:
+        return snaps
+    lo, hi = rng
+    keep = pd.Series(True, index=snaps.index)
+    if lo is not None:
+        keep &= snaps["at"] >= lo
+    if hi is not None:
+        keep &= snaps["at"] < hi
+    return snaps[keep]
+
+
+def season_picker(d):
+    """Stats for all seasons or one of them: the picker shows once there's more than one season (not on the
+    Seasons section, which compares them all; the pick is kept for when you come back)."""
+    if "season" not in d.matches or d.matches["season"].max() < 2:
+        return d
+    tab = seasons.table(d.matches, None, d.season_starts)   # newest first
+    opts = ["All seasons"] + list(tab["label"])
+    keep = st.session_state.get("stats_season_keep")
+    pick = keep if keep in opts else "All seasons"
+    if st.session_state.get("stats_pick") != "Seasons":
+        with st.container(key="season_pick", width=340):
+            pick = st.selectbox("Season", opts, index=opts.index(pick), key="stats_season_box")
+        st.session_state["stats_season_keep"] = pick
+    if pick == "All seasons":
+        return d
+    return season_view(d, int(tab.loc[tab["label"] == pick, "season"].iloc[0]))
+
+
+def stats_seasons(d):
+    snaps = db.club_snapshots_df(CLUB_ID)
+    tab = seasons.table(d.matches, snaps, d.season_starts)
+    if tab.empty:
+        return
+    tab["grade"] = tab["team_grade"].map(lambda v: "" if isna(v) else f"{grades.letter(v)} {v:.0f}") if "team_grade" in tab else ""
+    section("Seasons", "EA's Clubs league seasons, newest first. Points count 3 for a win and 1 for a draw.")
+    cols = ["label", "matches", "w", "d", "l", "points", "ppg", "win_pct", "gf", "ga", "clean_sheets", "grade",
+            "sr_start", "sr_end", "division", "promotions"]
+    st.dataframe(tab[[c for c in cols if c in tab]], hide_index=True, width="stretch", column_config={
+        "label": "Season", "matches": "Matches", "w": "W", "d": "D", "l": "L", "points": "Points",
+        "ppg": st.column_config.NumberColumn("Points / match", format="%.2f"),
+        "win_pct": st.column_config.NumberColumn("Win %", format="%.0f%%"), "gf": "Scored", "ga": "Conceded",
+        "clean_sheets": "Clean sheets", "grade": "Team grade (avg)",
+        "sr_start": st.column_config.NumberColumn("SR at the start", format="%d"),
+        "sr_end": st.column_config.NumberColumn("SR now / at the end", format="%d"),
+        "division": st.column_config.NumberColumn("Division", format="%d"), "promotions": "Promotions"})
+    if len(tab) < 2:
+        st.caption("Each new season gets its own row here as soon as EA starts it, and a Season picker then appears "
+                   "at the top of Stats, so every section can show one season at a time.")
+    m = d.matches
+    a, b = st.columns(2, gap="medium")
+    with a:   # the points race: this season against the earlier ones, match by match
+        fig = go.Figure()
+        others = [BLUE, AVG, "#8a9a93", "#5c6b65"]
+        for i, r in tab.iterrows():
+            g = m[m["season"] == r["season"]]
+            cur = i == 0
+            fig.add_trace(go.Scatter(x=list(range(1, len(g) + 1)), y=g["points"].cumsum(), mode="lines",
+                                     name=r["label"], line=dict(color=VOLT if cur else others[(i - 1) % len(others)],
+                                                                width=3.5 if cur else 2),
+                                     hovertemplate="Match %{x}: %{y} points<extra>" + esc(r["label"]) + "</extra>"))
+        fig.update_layout(title="Points race, season by season", xaxis_title="Match of the season",
+                          yaxis_title="Points")
+        chart(fig)
+    with b:
+        t = tab.iloc[::-1]
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=t["label"], y=t["gf"] / t["matches"], name="Scored a match", marker_color=VOLT))
+        fig.add_trace(go.Bar(x=t["label"], y=t["ga"] / t["matches"], name="Conceded a match", marker_color=BAD))
+        fig.update_layout(title="Goals a match, season by season", barmode="group", yaxis=dict(tickformat=".1f"))
+        chart(fig)
+    o = d.ours.merge(m[["match_id", "season"]], on="match_id", how="inner")
+    if o.empty:
+        return
+    g = o.groupby(["season", "player_id"]).agg(matches=("match_id", "nunique"), goals=("goals", "sum"),
+                                               assists=("assists", "sum"), rating=("rating", "mean"),
+                                               grade=("grade_score", "mean"), mom=("mom", "sum")).reset_index()
+    g["name"] = g["player_id"].map(d.names).fillna(g["player_id"])
+    g["ga_pm"] = (g["goals"] + g["assists"]) / g["matches"]
+    g["grade_txt"] = g["grade"].map(lambda v: "" if isna(v) else f"{grades.letter(v)} {v:.0f}")
+    g["label"] = g["season"].map(dict(zip(tab["season"], tab["label"])))
+    g = g.sort_values(["season", "grade"], ascending=[False, False])
+    section("Players, season by season", "Everyone who played for the club, per season (best grade first).")
+    st.dataframe(g[["label", "name", "matches", "goals", "assists", "ga_pm", "rating", "grade_txt", "mom"]],
+                 hide_index=True, width="stretch", column_config={
+                     "label": "Season", "name": "Player", "matches": "Matches", "goals": "Goals", "assists": "Assists",
+                     "ga_pm": st.column_config.NumberColumn("G+A / match", format="%.2f"),
+                     "rating": st.column_config.NumberColumn("Avg rating", format="%.2f"),
+                     "grade_txt": "Grade (avg)", "mom": "MOTM"})
+
+
 STATS_SECTIONS = {"Team": stats_club, "You": stats_you, "Compare": stats_compare,
-                  "Teammates": stats_teammates, "Opponents": stats_opponents, "Time": stats_time, "Records": stats_records}
+                  "Teammates": stats_teammates, "Opponents": stats_opponents, "Time": stats_time, "Records": stats_records,
+                  "Seasons": stats_seasons}
 
 
 def page_stats():
@@ -2538,12 +2686,14 @@ def page_stats():
     if d.matches.empty:
         empty_state("📈", "Nothing to show yet", "Charts appear once your first matches are saved.")
         return
+    view = season_picker(d)
     default = UI.get("stats_default") if UI.get("stats_default") in STATS_SECTIONS else "Team"
     if st.session_state.get("stats_pick") not in STATS_SECTIONS:
         st.session_state["stats_pick"] = default
     with st.container(key="section"):
         pick = st.segmented_control("Section", list(STATS_SECTIONS), key="stats_pick", label_visibility="collapsed")
-    STATS_SECTIONS.get(pick or default)(d)
+    pick = pick or default
+    STATS_SECTIONS[pick](d if pick == "Seasons" else view)   # Seasons always compares all of them
 
 
 # ================================================================= PAGE: SEARCH
@@ -3210,6 +3360,12 @@ zero for weaker clubs). It also counts in the grades: every 100 SR they have abo
 *upset win*, losing to a weaker one an *upset loss*. EA keeps only a club's last 10 games of each type, so for older
 matches their games after the match are used, and the report says so. Stats > Opponents has your results by strength.
 
+**Seasons.** EA's match data doesn't say which league season a match was in, so the tracker notices a new season
+when EA's season record starts again from zero (or EA's count of finished seasons goes up), and uses the new
+season's game count to tell which matches belong to it. Stats > Seasons compares the seasons and their players, and
+once there's more than one, a Season picker at the top of Stats shows every section for one season. On phones, the
+pages that don't fit in the top bar are under *More*.
+
 **Search.** Look up any club by name (or club ID), or pick one you've played: you get their skill rating and
 record, their last 10 games and players, how they compare with you and your matches against them. It asks EA right
 away, so it's handy for the club you're about to play (their games are kept for scouting later, too).
@@ -3347,40 +3503,58 @@ BRAND = ('<div class="brand"><svg width="30" height="32" viewBox="0 0 34 38">'
          '<div class="brand-name">CLUBS <span>TRACKER</span></div></div>')
 
 
+NAV_MAIN = ("team", "you", "matches", "stats")   # always in the top bar; on phones the other pages are in a menu
+
+
+def hud_html(stt, snap, club):
+    """Status, division, skill rating and crest: the boxes at the right of the top bar."""
+    boxes = []
+    if ONLINE:
+        res = getattr(_pkg, "_online_result", None) or {}
+        when = f"last update {ago(pd.Timestamp(res['newest']))}" if res.get("newest") else "online"
+        boxes.append(f'<div class="hud-box status" title="The online copy of the tracker: {esc(when)}">'
+                     f'<span class="hud-dot live"></span>ONLINE</div>')
+    elif stt.get("running"):
+        live = stt.get("state") in ("playing", "active", "checking", "scouting")
+        err = stt.get("state") == "error"
+        boxes.append(f'<div class="hud-box status" title="The collector is on (state: {esc(stt.get("state"))})">'
+                     f'<span class="hud-dot {"live" if live else "err" if err else ""}"></span>'
+                     f'{"LIVE" if live else "EA DOWN" if err else "AUTO"}</div>')
+    else:
+        boxes.append('<div class="hud-box status" title="The collector is off: matches are not being saved" '
+                     'style="color:var(--muted)"><span class="hud-dot off"></span>OFF</div>')
+    if snap.get("division"):
+        boxes.append(f'<div class="hud-box" title="Division"><small>DIV</small>{esc(labels.division(snap.get("division")).replace("Division ", ""))}</div>')
+    if snap.get("skill_rating"):
+        boxes.append(f'<div class="hud-box" title="Skill rating"><small>SR</small>{fmt(snap.get("skill_rating"))}</div>')
+    if club.get("crest_url"):
+        boxes.append(crest(club["crest_url"], 34))
+    return f'<div class="hud">{"".join(boxes)}</div>'
+
+
 def top_bar():
     stt = collector_ctl.status()
     snap = db.latest_club_snapshot(CLUB_ID) if CLUB_ID else {}
     club = db.club(CLUB_ID) if CLUB_ID else {}
+    hud = hud_html(stt, snap, club)
+    rest = [k for k in PAGES if k not in NAV_MAIN]
+    here = next((k for k in rest if current.url_path == PAGES[k].url_path), None)   # a menu page is open
     with st.container(key="topbar", horizontal=True, vertical_alignment="center", gap="small"):
         st.html(BRAND, width="content")
-        for key, pg in PAGES.items():
-            active = current.url_path == pg.url_path
-            with st.container(key=("navon_" if active else "nav_") + key, width="content"):
-                st.page_link(pg, label=pg.title, icon=None)
+        with st.container(key="navrow", horizontal=True, vertical_alignment="center", gap="small", width="content"):
+            for key, pg in PAGES.items():
+                active = current.url_path == pg.url_path
+                more = "" if key in NAV_MAIN else "more_"   # hidden on phones: they're in the menu
+                with st.container(key=("navon_" if active else "nav_") + more + key, width="content"):
+                    st.page_link(pg, label=pg.title, icon=None)
         st.space("stretch")
-        boxes = []
-        if ONLINE:
-            res = getattr(_pkg, "_online_result", None) or {}
-            when = f"last update {ago(pd.Timestamp(res['newest']))}" if res.get("newest") else "online"
-            boxes.append(f'<div class="hud-box status" title="The online copy of the tracker: {esc(when)}">'
-                         f'<span class="hud-dot live"></span>ONLINE</div>')
-        elif stt.get("running"):
-            live = stt.get("state") in ("playing", "active", "checking", "scouting")
-            err = stt.get("state") == "error"
-            boxes.append(f'<div class="hud-box status" title="The collector is on (state: {esc(stt.get("state"))})">'
-                         f'<span class="hud-dot {"live" if live else "err" if err else ""}"></span>'
-                         f'{"LIVE" if live else "EA DOWN" if err else "AUTO"}</div>')
-        else:
-            boxes.append('<div class="hud-box status" title="The collector is off: matches are not being saved" '
-                         'style="color:var(--muted)"><span class="hud-dot off"></span>OFF</div>')
-        if snap.get("division"):
-            boxes.append(f'<div class="hud-box" title="Division"><small>DIV</small>{esc(labels.division(snap.get("division")).replace("Division ", ""))}</div>')
-        if snap.get("skill_rating"):
-            boxes.append(f'<div class="hud-box" title="Skill rating"><small>SR</small>{fmt(snap.get("skill_rating"))}</div>')
-        if club.get("crest_url"):
-            boxes.append(crest(club["crest_url"], 34))
-        st.html(f'<div class="hud">{"".join(boxes)}</div>', width="content")
-
+        with st.container(key="hudbar", width="content"):
+            st.html(hud, width="content")
+        with st.container(key="navmenu_on" if here else "navmenu", width="content"):   # phones only
+            with st.popover(PAGES[here].title if here else "More", icon=":material/menu:"):
+                for key in rest:
+                    st.page_link(PAGES[key], label=PAGES[key].title, icon=PAGES[key].icon, width="stretch")
+                st.html(hud.replace('class="hud"', 'class="hud hud-menu"'))
 
 if ONLINE and not CLUB_ID:
     res_ = getattr(_pkg, "_online_result", None) or {}
